@@ -1,0 +1,50 @@
+Build instructions
+
+0 - Optionally create a conda environment to isolate Python library installations
+
+    $ conda create --name cpp_backend_poc_eager python=3
+    $ conda activate cpp_backend_poc_eager
+
+1 - Build PyTorch with torch::deploy support
+
+  1-a - Checkout PyTorch:
+
+        $ git checkout https://github.com/pytorch/pytorch.git
+        $ git submodule sync && git submodule update --init --recursive 
+ 
+  1-b - Install PyTorch dependencies:
+
+        conda install astunparse numpy ninja pyyaml mkl mkl-include setuptools cmake cffi typing_extensions future six requests dataclasses
+
+  1-c - Install torch::deploy dependencies:
+
+        On CentOS 8: $ sudo dnf install bzip2-devel gdbm-devel libffi-devel libnsl2-devel  libtirpc-devel ncurses-devel readline-devel xz-devel
+
+  1-d - Build PyTorch with torch::deploy:
+
+        USE_DEPLOY=ON BUILD_CAFFE2=OFF BUILD_CAFFE2_OPS=OFF python setup.py develop
+
+2 - Build Microsoft's C++ REST SDK:
+
+    2-a Checkout cpprestsdk:
+
+        $ git checkout https://github.com/microsoft/cpprestsdk.git
+        $ git submodule sync && git submodule update --init --recursive
+
+    2-b Install cpprestsdk dependencies:
+
+        In CentOS 8: $ sudo dnf install boost-devel
+
+    2-c Build cpprestsdk:
+
+       $ mkdir ./build
+       $ cd ./build
+       $ cmake -DCMAKE_INSTALL_PREFIX=<cpprestsdk_ROOT_DIR>/install .. 
+       $ make install -j16
+
+3 - Build this example:
+
+    $ mkdir ./build
+    $ cd ./build
+    $ cpprestsdk_DIR=<cpprestsdk_DIR>/install/lib64/cmake cmake -DCMAKE_PREFIX_PATH=<pytorch_ROOT_DIR> ..
+    $ make all -j16
