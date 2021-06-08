@@ -8,8 +8,20 @@ target_compile_features(cpp_backend_poc_eager PRIVATE cxx_std_14)
 # Microsoft's C++ REST SDK
 #
 
-target_include_directories(cpp_backend_poc_eager PRIVATE $ENV{cpprestsdk_DIR}/include)
-# target_link_libraries(cpp_backend_poc_eager PRIVATE cpprestsdk::cpprest)
+find_package(cpprestsdk REQUIRED)
+target_link_libraries(cpp_backend_poc_eager PRIVATE cpprestsdk::cpprest)
+
+# C++ REST SDK #define's the upper case letter U as a macro (!!!) which is an
+# extraordinarily irresponsible thing to do!  This conflicts, among many other
+# things, with the upper case letter U that is commonly used in C++ to denote
+# generic template parameters, resulting in cryptic errors that are time
+# consuming to root cause.  We disable this behavior here.
+target_compile_definitions(cpp_backend_poc_eager PRIVATE _TURN_OFF_PLATFORM_STRING)
+
+# C++ REST SDK does not link against its dependencies it seems so we are doing it
+# manually here.
+target_link_libraries(cpp_backend_poc_eager PRIVATE OpenSSL::Crypto)
+target_link_libraries(cpp_backend_poc_eager PRIVATE ${Boost_LIBRARIES})
 
 #
 # PyTorch
