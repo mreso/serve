@@ -46,5 +46,5 @@ Build instructions
 
     $ mkdir ./build
     $ cd ./build
-    $ cpprestsdk_DIR=<cpprestsdk_DIR>/install/lib64/cmake cmake -DCMAKE_PREFIX_PATH=<pytorch_ROOT_DIR> ..
+    $ cmake -DCMAKE_PREFIX_PATH="<<cpprestsdk_ROOT_DIR>/install;pytorch_ROOT_DIR>" ..
     $ make all -j16
