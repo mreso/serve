@@ -10,8 +10,8 @@ Build instructions
   1-a - Checkout PyTorch:
 
         $ git checkout https://github.com/pytorch/pytorch.git
-        $ git submodule sync && git submodule update --init --recursive 
- 
+        $ git submodule sync && git submodule update --init --recursive
+
   1-b - Install PyTorch dependencies:
 
         conda install astunparse numpy ninja pyyaml mkl mkl-include setuptools cmake cffi typing_extensions future six requests dataclasses
@@ -39,12 +39,12 @@ Build instructions
 
        $ mkdir ./build
        $ cd ./build
-       $ cmake -DCMAKE_INSTALL_PREFIX=<cpprestsdk_ROOT_DIR>/install .. 
+       $ cmake -DCMAKE_INSTALL_PREFIX=<cpprestsdk_ROOT_DIR>/install ..
        $ make install -j16
 
 3 - Build this example:
 
     $ mkdir ./build
     $ cd ./build
-    $ cmake -DCMAKE_PREFIX_PATH="<<cpprestsdk_ROOT_DIR>/install;pytorch_ROOT_DIR>" ..
+    $ cmake -DCMAKE_PREFIX_PATH="<cpprestsdk_ROOT_DIR>/install;pytorch_ROOT_DIR>" ..
     $ make all -j16
