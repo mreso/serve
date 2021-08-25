@@ -206,7 +206,9 @@ public class InferenceRequestHandler extends HttpRequestHandlerChain {
             String modelName,
             String modelVersion)
             throws ModelNotFoundException, ModelVersionNotFoundException {
+        long begin = System.currentTimeMillis();
         RequestInput input = parseRequest(ctx, req, decoder);
+        logger.info("inference parseRequest time: {}", System.currentTimeMillis() - begin);
         if (modelName == null) {
             modelName = input.getStringParameter("model_name");
             if (modelName == null) {

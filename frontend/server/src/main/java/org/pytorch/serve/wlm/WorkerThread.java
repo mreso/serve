@@ -183,6 +183,7 @@ public class WorkerThread implements Runnable {
 
                 long wtStartTime = System.currentTimeMillis();
                 backendChannel.writeAndFlush(req).sync();
+                logger.info("Backend channel writeAndFlush time: {}", System.currentTimeMillis() - wtStartTime);
 
                 long begin = System.currentTimeMillis();
                 ModelWorkerResponse reply = replies.poll(responseTimeout, TimeUnit.SECONDS);

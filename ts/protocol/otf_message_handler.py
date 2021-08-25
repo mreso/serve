@@ -12,6 +12,7 @@ import io
 from builtins import bytearray
 from builtins import bytes
 import torch
+import time
 
 int_size = 4
 END_OF_LIST = -1
@@ -31,7 +32,10 @@ def retrieve_msg(conn):
     if cmd == LOAD_MSG:
         msg = _retrieve_load_msg(conn)
     elif cmd == PREDICT_MSG:
+        begin = int(round(time.time() * 1000))
         msg = _retrieve_inference_msg(conn)
+        end = int(round(time.time() * 1000))
+        logging.info("_retrieve_inference_msg time: {}".format(end - begin))
     else:
         raise ValueError("Invalid command: {}".format(cmd))
 
