@@ -9,7 +9,7 @@ Download_Transformer_models.py:
 
 `python serve/examples/Huggingface_Transformers/Download_Transformer_models.py`
 
-This produces all the required files for packaging using a huggingface transformer model off-the-shelf without fine-tuning process. Using this option will create and saved the required files into Transformer_model directory. 
+This produces all the required files for packaging using a huggingface transformer model off-the-shelf without fine-tuning process. Using this option will create and save the required files into Transformer_model directory. 
 
 The .mar file creation command is as below:
 

@@ -22,7 +22,7 @@ If you're finetuning an existing model then you need to save your model and toke
 
 ```
 mkdir Transformer_model
-mv pytorch_model_bin vocab.txt config.json Transformer_model/
+mv pytorch_model.bin vocab.txt config.json Transformer_model/
 ```
 
 If you'd like to download a pretrained model without fine tuning we've provided a simple helper script which will do the above for you. All you need to do is change [setup.config.json](https://github.com/pytorch/serve/blob/master/examples/Huggingface_Transformers/setup_config.json) to your liking and run
@@ -55,7 +55,7 @@ Once, `setup_config.json` has been set properly, the next step is to run
 
 `python Download_Transformer_models.py`
 
-This produces all the required files for packaging using a huggingface transformer model off-the-shelf without fine-tuning process. Using this option will create and saved the required files into Transformer_model directory. 
+This produces all the required files for packaging using a huggingface transformer model off-the-shelf without fine-tuning process. Using this option will create and save the required files into Transformer_model directory. 
 
 
 #### Setting the extra_files
@@ -65,7 +65,7 @@ There are few files that are used for model packaging and at the inference time.
 * `sample_text.txt`: input text for ifnerence
 * `vocab.txt`: by default will use the tokenizer from the pretrained model
 
-For custom vocabs, it is required to pass all other tokenizer related files such `tokenizer_config.json`, `special_tokens_map.json`, `config.json` and if available `merges.txt`. 
+For custom vocabs, it is required to pass all other tokenizer related files such as `tokenizer_config.json`, `special_tokens_map.json`, `config.json` and if available `merges.txt`. 
 
 For examples of how to configure a model for a use case and what the input format should look like
 * Model configuration: `Transformer_model` directory after running `python Download_Transformer_models.py`
