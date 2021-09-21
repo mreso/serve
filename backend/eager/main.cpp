@@ -51,41 +51,63 @@ int main(const int argc, const char* const argv[]) {
   // Torch Deploy
   torch::deploy::InterpreterManager manager(thread_count);
   torch::deploy::Package package = manager.load_package(model_to_serve);
-  torch::deploy::ReplicatedObj obj = package.load_pickle("model", "model.pkl");
+  // torch::deploy::ReplicatedObj obj = package.load_pickle("model", "model.pkl");
+  // torch::deploy::ReplicatedObj tokenizer = package.load_pickle("tokenizer", "tokenizer.pkl");
+  torch::deploy::ReplicatedObj handler = package.load_pickle("handler", "handler.pkl");
 
-  torch::deploy::InterpreterSession s = obj.acquire_session();
 
-  std::vector<c10::IValue> args;
-  s.self.attr("eval")(args);
 
-  torch::Tensor data = vision::image::read_file("kitten_small.jpg");
-  torch::Tensor image = vision::image::decode_jpeg(data);
+  // std::string sequence_0 = "The company HuggingFace is based in New York City";
+  std::string sequence_1 = "Apples are especially bad for your health";
+  std::string sequence_0 = "Eating apples is a health risk";
 
-  image = image.toType(torch::kFloat32);
+  std::vector<c10::IValue> args{sequence_0, sequence_1};
+  std::unordered_map<std::string, c10::IValue> kwargs = {{"return_tensors", "pt"}};
 
-  std::cout << image.index({0,0,0}).item<double>() << std::endl;
+  // torch::deploy::InterpreterSession ts = tokenizer.acquire_session();
+  // auto token = ts.self.attr("encode_plus").call_kwargs(args, kwargs);
 
-  image = image.toType(torch::kFloat32);
+  kwargs.clear();
+  torch::deploy::InterpreterSession hs = handler.acquire_session();
+  auto ret = hs.self.attr("execute").call_kwargs(args, kwargs);
 
-  std::cout << image.index({0,0,0}).item<double>()<< std::endl;
+  std::cout << ret.toIValue() << std::endl;
 
-  image = image.div(255.);
+  // torch::deploy::InterpreterSession s = obj.acquire_session();
 
-  std::cout << image.index({0,0,0}).item<double>()<< std::endl;
+  // args.clear();
+  // s.self.attr("eval")(args);
 
-  image = image
-    .sub(torch::tensor(std::vector<float>{0.485, 0.456, 0.406}).unsqueeze(-1).unsqueeze(-1))
-    .div(torch::tensor(std::vector<float>{0.229, 0.224, 0.225}).unsqueeze(-1).unsqueeze(-1));
+  // torch::Tensor data = vision::image::read_file("kitten_small.jpg");
+  // torch::Tensor image = vision::image::decode_jpeg(data);
 
-  std::cout << image.dim() <<  std::endl;
+  // image = image.toType(torch::kFloat32);
 
-  for( size_t i=0; i<image.dim(); ++i)
-    std::cout << image.size(i) <<  " ";
-  std::cout << std::endl;
+  // std::cout << image.index({0,0,0}).item<double>() << std::endl;
 
-  torch::Tensor result = obj({image.unsqueeze(0)}).toTensor();
+  // image = image.toType(torch::kFloat32);
 
-  std::cout << result.index({0}).argmax(0).item<int>() << std::endl;
+  // std::cout << image.index({0,0,0}).item<double>()<< std::endl;
+
+  // image = image.div(255.);
+
+  // std::cout << image.index({0,0,0}).item<double>()<< std::endl;
+
+  // image = image
+  //   .sub(torch::tensor(std::vector<float>{0.485, 0.456, 0.406}).unsqueeze(-1).unsqueeze(-1))
+  //   .div(torch::tensor(std::vector<float>{0.229, 0.224, 0.225}).unsqueeze(-1).unsqueeze(-1));
+
+  // std::cout << image.dim() <<  std::endl;
+
+  // for( size_t i=0; i<image.dim(); ++i)
+  //   std::cout << image.size(i) <<  " ";
+  // std::cout << std::endl;
+
+  // kwargs.clear();
+  // auto result = ts.self.attr("forward").call_kwargs(token, kwargs);
+  // torch::Tensor result = obj({image.unsqueeze(0)}).toTensor();
+
+  // std::cout << result.index({0}).argmax(0).item<int>() << std::endl;
 
   // HTTP Server
   http_listener listener(uri);
