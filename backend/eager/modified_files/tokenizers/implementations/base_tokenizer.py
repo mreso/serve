@@ -1,9 +1,9 @@
-# from tokenizers import Tokenizer, Encoding, AddedToken, InputSequence, EncodeInput
-# from tokenizers.models import Model
-# from tokenizers.normalizers import Normalizer
-# from tokenizers.pre_tokenizers import PreTokenizer
-# from tokenizers.processors import PostProcessor
-# from tokenizers.decoders import Decoder
+from tokenizers import Tokenizer, Encoding, AddedToken, InputSequence, EncodeInput
+from tokenizers.models import Model
+from tokenizers.normalizers import Normalizer
+from tokenizers.pre_tokenizers import PreTokenizer
+from tokenizers.processors import PostProcessor
+from tokenizers.decoders import Decoder
 
 from typing import List, Union, Tuple, Optional, Dict
 
@@ -11,7 +11,7 @@ Offsets = Tuple[int, int]
 
 
 class BaseTokenizer:
-    def __init__(self, tokenizer, parameters=None):
+    def __init__(self, tokenizer: Tokenizer, parameters=None):
         self._tokenizer = tokenizer
         self._parameters = parameters if parameters is not None else {}
 
@@ -141,7 +141,7 @@ class BaseTokenizer:
         """
         return self._tokenizer.truncation
 
-    def add_tokens(self, tokens) -> int:
+    def add_tokens(self, tokens: List[Union[str, AddedToken]]) -> int:
         """Add the given tokens to the vocabulary
 
         Args:
@@ -154,7 +154,7 @@ class BaseTokenizer:
         """
         return self._tokenizer.add_tokens(tokens)
 
-    def add_special_tokens(self, special_tokens) -> int:
+    def add_special_tokens(self, special_tokens: List[Union[str, AddedToken]]) -> int:
         """Add the given special tokens to the vocabulary, and treat them as special tokens.
 
         The special tokens will never be processed by the model, and will be
@@ -184,11 +184,11 @@ class BaseTokenizer:
 
     def encode(
         self,
-        sequence ,
-        pair = None,
+        sequence: InputSequence,
+        pair: Optional[InputSequence] = None,
         is_pretokenized: bool = False,
         add_special_tokens: bool = True,
-    ) :
+    ) -> Encoding:
         """Encode the given sequence and pair. This method can process raw text sequences as well
         as already pre-tokenized sequences.
 
@@ -217,10 +217,10 @@ class BaseTokenizer:
 
     def encode_batch(
         self,
-        inputs,
+        inputs: List[EncodeInput],
         is_pretokenized: bool = False,
         add_special_tokens: bool = True,
-    ) :
+    ) -> List[Encoding]:
         """Encode the given inputs. This method accept both raw text sequences as well as already
         pre-tokenized sequences.
 
@@ -348,8 +348,8 @@ class BaseTokenizer:
         return self._tokenizer.to_str(pretty)
 
     def post_process(
-        self, encoding, pair = None, add_special_tokens: bool = True
-    ) :
+        self, encoding: Encoding, pair: Optional[Encoding] = None, add_special_tokens: bool = True
+    ) -> Encoding:
         """Apply all the post-processing steps to the given encodings.
 
         The various steps are:
@@ -373,41 +373,41 @@ class BaseTokenizer:
         return self._tokenizer.post_process(encoding, pair, add_special_tokens)
 
     @property
-    def model(self) :
+    def model(self) -> Model:
         return self._tokenizer.model
 
     @model.setter
-    def model(self, model):
+    def model(self, model: Model):
         self._tokenizer.model = model
 
     @property
-    def normalizer(self) :
+    def normalizer(self) -> Normalizer:
         return self._tokenizer.normalizer
 
     @normalizer.setter
-    def normalizer(self, normalizer):
+    def normalizer(self, normalizer: Normalizer):
         self._tokenizer.normalizer = normalizer
 
     @property
-    def pre_tokenizer(self) :
+    def pre_tokenizer(self) -> PreTokenizer:
         return self._tokenizer.pre_tokenizer
 
     @pre_tokenizer.setter
-    def pre_tokenizer(self, pre_tokenizer):
+    def pre_tokenizer(self, pre_tokenizer: PreTokenizer):
         self._tokenizer.pre_tokenizer = pre_tokenizer
 
     @property
-    def post_processor(self) :
+    def post_processor(self) -> PostProcessor:
         return self._tokenizer.post_processor
 
     @post_processor.setter
-    def post_processor(self, post_processor):
+    def post_processor(self, post_processor: PostProcessor):
         self._tokenizer.post_processor = post_processor
 
     @property
-    def decoder(self) :
+    def decoder(self) -> Decoder:
         return self._tokenizer.decoder
 
     @decoder.setter
-    def decoder(self, decoder):
+    def decoder(self, decoder: Decoder):
         self._tokenizer.decoder = decoder
