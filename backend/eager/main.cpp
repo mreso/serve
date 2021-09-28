@@ -1,5 +1,6 @@
 // CPP REST SDK
 #include <cpprest/http_listener.h>
+#include <cpprest/json.h>
 
 // PyTorch
 #include <torch/torch.h>
@@ -7,24 +8,84 @@
 #include <torch/csrc/deploy/deploy.h>
 #include <torchvision/io/image/image.h>
 
+using namespace web::http::experimental::listener;
+using namespace web::http;
+using namespace web;
+
 // C++ STD
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
 #include <thread>
+#include <map>
+#include <string>
+#include <iostream>
+#include <set>
+using namespace std;
 
-using namespace web::http::experimental::listener;
-using namespace web::http;
+#define TRACE(msg)            cout << msg
+#define TRACE_ACTION(a, k, v) cout << a << " (" << k << ", " << v << ")\n"
+
+map<utility::string_t, utility::string_t> dictionary;
 
 namespace {
 
 volatile std::sig_atomic_t signal_{};
 
-void handler(const int signal) {
+void signal_handler(const int signal) {
   signal_ = signal;
 }
 
 } // namespace
+
+void display_json(
+   json::value const & jvalue,
+   utility::string_t const & prefix)
+{
+   cout << prefix << jvalue.serialize() << endl;
+   // cout << jvalue.serialize() << endl;
+}
+
+void handle_request(
+   http_request request,
+   torch::deploy::ReplicatedObj &model_hander)
+{
+   utility::string_t answer;
+   request
+      .extract_string()
+      .then([&answer, &model_hander](pplx::task<utility::string_t> task) {
+         try
+         {
+            // auto const & jvalue = task.get();
+
+            // std::tojvalue << endl;
+
+            // std::string sequence_1 = "Apples are especially bad for your health";
+            // std::string sequence_0 = "Eating apples is a health risk";
+
+            // std::vector<c10::IValue> args{"{\"sequence_1\": \"Apples are especially bad for your health\", \"sequence_0\": \"Eating apples is a health risk\"}"};
+            std::vector<c10::IValue> args{task.get()};
+            std::unordered_map<std::string, c10::IValue> kwargs;
+
+            cout << "WILL IT RETURN?"<<endl;
+
+            auto ret = model_hander.call_kwargs(args, kwargs);
+
+            cout << "YES?"<<endl;
+
+            cout << ret.toIValue() << endl;
+
+            answer = ret.toIValue().toString();
+         }
+         catch (http_exception const & e)
+         {
+            wcout << e.what() << endl;
+         }
+      })
+      .wait();
+
+   request.reply(status_codes::OK, answer);
+}
 
 int main(const int argc, const char* const argv[]) {
   if (argc != 4) {
@@ -35,7 +96,7 @@ int main(const int argc, const char* const argv[]) {
     return EXIT_FAILURE;
   }
 
-  if (std::signal(SIGINT, &handler) == SIG_ERR) {
+  if (std::signal(SIGINT, &signal_handler) == SIG_ERR) {
     std::cerr << "Failed to register signal handler!" << std::endl;
     return EXIT_FAILURE;
   }
@@ -51,69 +112,44 @@ int main(const int argc, const char* const argv[]) {
   // Torch Deploy
   torch::deploy::InterpreterManager manager(thread_count);
   torch::deploy::Package package = manager.load_package(model_to_serve);
-  // torch::deploy::ReplicatedObj obj = package.load_pickle("model", "model.pkl");
-  // torch::deploy::ReplicatedObj tokenizer = package.load_pickle("tokenizer", "tokenizer.pkl");
   torch::deploy::ReplicatedObj handler = package.load_pickle("handler", "handler.pkl");
 
 
+// std::vector<c10::IValue> args{"{\"sequence_1\": \"Apples are especially bad for your health\", \"sequence_0\": \"Eating apples is a health risk\"}"};
+// std::unordered_map<std::string, c10::IValue> kwargs;
 
-  // std::string sequence_0 = "The company HuggingFace is based in New York City";
-  std::string sequence_1 = "Apples are especially bad for your health";
-  std::string sequence_0 = "Eating apples is a health risk";
+// auto ret = handler.call_kwargs(args, kwargs);
+// std::cout << ret.toIValue() << std::endl;
 
-  std::vector<c10::IValue> args{sequence_0, sequence_1};
-  std::unordered_map<std::string, c10::IValue> kwargs = {{"return_tensors", "pt"}};
+// HTTP Server
+http_listener listener(uri);
+listener.support(methods::GET, [](const http_request& request) {
+   std::cout << "Received a GET request!"  << std::endl;
+   if(request.relative_uri().path() == "/ping") {
+      request.reply(status_codes::OK, "PING");
+   }else {
+      request.reply(status_codes::OK);
+   }
+});
 
-  // torch::deploy::InterpreterSession ts = tokenizer.acquire_session();
-  // auto token = ts.self.attr("encode_plus").call_kwargs(args, kwargs);
+listener.support(methods::POST, [&handler](const http_request& request) {
+   std::cout << "Received a POST request!" << std::endl;
+   handle_request(
+      request,
+      handler
+   );
 
-  kwargs.clear();
-  torch::deploy::InterpreterSession hs = handler.acquire_session();
-  auto ret = hs.self.attr("execute").call_kwargs(args, kwargs);
+});
 
-  std::cout << ret.toIValue() << std::endl;
+listener.support(methods::PUT, [&handler](const http_request& request) {
+   std::cout << "Received a PUT request!" << std::endl;
+   handle_request(
+      request,
+      handler);
+});
 
-  // torch::deploy::InterpreterSession s = obj.acquire_session();
 
-  // args.clear();
-  // s.self.attr("eval")(args);
 
-  // torch::Tensor data = vision::image::read_file("kitten_small.jpg");
-  // torch::Tensor image = vision::image::decode_jpeg(data);
-
-  // image = image.toType(torch::kFloat32);
-
-  // std::cout << image.index({0,0,0}).item<double>() << std::endl;
-
-  // image = image.toType(torch::kFloat32);
-
-  // std::cout << image.index({0,0,0}).item<double>()<< std::endl;
-
-  // image = image.div(255.);
-
-  // std::cout << image.index({0,0,0}).item<double>()<< std::endl;
-
-  // image = image
-  //   .sub(torch::tensor(std::vector<float>{0.485, 0.456, 0.406}).unsqueeze(-1).unsqueeze(-1))
-  //   .div(torch::tensor(std::vector<float>{0.229, 0.224, 0.225}).unsqueeze(-1).unsqueeze(-1));
-
-  // std::cout << image.dim() <<  std::endl;
-
-  // for( size_t i=0; i<image.dim(); ++i)
-  //   std::cout << image.size(i) <<  " ";
-  // std::cout << std::endl;
-
-  // kwargs.clear();
-  // auto result = ts.self.attr("forward").call_kwargs(token, kwargs);
-  // torch::Tensor result = obj({image.unsqueeze(0)}).toTensor();
-
-  // std::cout << result.index({0}).argmax(0).item<int>() << std::endl;
-
-  // HTTP Server
-  http_listener listener(uri);
-  listener.support(methods::GET, [](const http_request& request) {
-    std::cout << "Received a GET request!" << std::endl;
-  });
   listener.open().wait();
 
   while (signal_ != SIGINT) {
