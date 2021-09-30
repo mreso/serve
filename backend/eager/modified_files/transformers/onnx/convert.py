@@ -20,6 +20,7 @@ from typing import Iterable, List, Tuple, Union
 import numpy as np
 from packaging.version import Version, parse
 
+#from .. import PreTrainedModel, PreTrainedTokenizer, TensorType, TFPreTrainedModel, is_torch_available
 from .. import PreTrainedModel, PreTrainedTokenizer, TensorType, is_torch_available
 from ..file_utils import is_torch_onnx_dict_inputs_support_available
 from ..utils import logging
@@ -135,6 +136,7 @@ def export(
 def validate_model_outputs(
     config: OnnxConfig,
     tokenizer: PreTrainedTokenizer,
+    # reference_model: Union[PreTrainedModel, TFPreTrainedModel],
     reference_model: Union[PreTrainedModel],
     onnx_model: Path,
     onnx_named_outputs: List[str],
@@ -221,6 +223,7 @@ def validate_model_outputs(
 
 
 def ensure_model_and_config_inputs_match(
+    # model: Union[PreTrainedModel, TFPreTrainedModel], model_inputs: Iterable[str]
     model: Union[PreTrainedModel], model_inputs: Iterable[str]
 ) -> Tuple[bool, List[str]]:
     """
