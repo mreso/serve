@@ -19,11 +19,8 @@ handler = Handler()
 print(handler.execute(sequence_0, sequence_1))
 print(handler.execute(sequence_0, sequence_2))
 
-venv_dir = 'validate_bert_example'
-package_path = "models/bert_package_validate.pt"
-
-# venv_dir = 'env'
-# package_path = "../models/bert_package_2.pt"
+venv_dir = 'venv'
+package_path = "../models/bert_package.pt"
 
 models_to_mock = [f'transformers.models.{s}.**' for s in os.listdir(f'./{venv_dir}/lib/python3.8/site-packages/transformers/models') if not (s.startswith('_') or s in ['bert', 'auto'])]
 
