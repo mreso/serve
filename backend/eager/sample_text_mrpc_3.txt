@@ -1,0 +1,2 @@
+{"sequence_0": "The company HuggingFace is based in New York City",
+"sequence_1": "HuggingFace's headquarters are situated in Manhattan"}
