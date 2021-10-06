@@ -56,22 +56,10 @@ void handle_request(
       .then([&answer, &model_hander](pplx::task<utility::string_t> task) {
          try
          {
-            // auto const & jvalue = task.get();
-
-            // std::tojvalue << endl;
-
-            // std::string sequence_1 = "Apples are especially bad for your health";
-            // std::string sequence_0 = "Eating apples is a health risk";
-
-            // std::vector<c10::IValue> args{"{\"sequence_1\": \"Apples are especially bad for your health\", \"sequence_0\": \"Eating apples is a health risk\"}"};
             std::vector<c10::IValue> args{task.get()};
             std::unordered_map<std::string, c10::IValue> kwargs;
 
-            cout << "WILL IT RETURN?"<<endl;
-
             auto ret = model_hander.call_kwargs(args, kwargs);
-
-            cout << "YES?"<<endl;
 
             cout << ret.toIValue() << endl;
 
@@ -115,40 +103,32 @@ int main(const int argc, const char* const argv[]) {
   torch::deploy::ReplicatedObj handler = package.load_pickle("handler", "handler.pkl");
 
 
-// std::vector<c10::IValue> args{"{\"sequence_1\": \"Apples are especially bad for your health\", \"sequence_0\": \"Eating apples is a health risk\"}"};
-// std::unordered_map<std::string, c10::IValue> kwargs;
+   // HTTP Server
+   http_listener listener(uri);
+   listener.support(methods::GET, [](const http_request& request) {
+      std::cout << "Received a GET request!"  << std::endl;
+      if(request.relative_uri().path() == "/ping") {
+         request.reply(status_codes::OK, "PING");
+      }else {
+         request.reply(status_codes::OK);
+      }
+   });
 
-// auto ret = handler.call_kwargs(args, kwargs);
-// std::cout << ret.toIValue() << std::endl;
+   listener.support(methods::POST, [&handler](const http_request& request) {
+      std::cout << "Received a POST request!" << std::endl;
+      handle_request(
+         request,
+         handler
+      );
 
-// HTTP Server
-http_listener listener(uri);
-listener.support(methods::GET, [](const http_request& request) {
-   std::cout << "Received a GET request!"  << std::endl;
-   if(request.relative_uri().path() == "/ping") {
-      request.reply(status_codes::OK, "PING");
-   }else {
-      request.reply(status_codes::OK);
-   }
-});
+   });
 
-listener.support(methods::POST, [&handler](const http_request& request) {
-   std::cout << "Received a POST request!" << std::endl;
-   handle_request(
-      request,
-      handler
-   );
-
-});
-
-listener.support(methods::PUT, [&handler](const http_request& request) {
-   std::cout << "Received a PUT request!" << std::endl;
-   handle_request(
-      request,
-      handler);
-});
-
-
+   listener.support(methods::PUT, [&handler](const http_request& request) {
+      std::cout << "Received a PUT request!" << std::endl;
+      handle_request(
+         request,
+         handler);
+   });
 
   listener.open().wait();
 
