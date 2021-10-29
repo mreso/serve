@@ -6,7 +6,6 @@
 #include <torch/torch.h>
 #include <torch/types.h>
 #include <torch/csrc/deploy/deploy.h>
-#include <torchvision/io/image/image.h>
 
 using namespace web::http::experimental::listener;
 using namespace web::http;
