@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 import csv
 import json
 import re
@@ -15,6 +16,7 @@ import requests
 import tempfile
 import os
 from urllib.parse import urlparse
+
 
 default_ab_params = {'url': "https://torchserve.pytorch.org/mar_files/resnet-18.mar",
                      'gpus': '',
@@ -70,6 +72,7 @@ def json_provider(file_path, cmd_name):
 
 @click_config_file.configuration_option(provider=json_provider, implicit=False,
                                         help="Read configuration from a JSON file")
+
 def benchmark(test_plan, url, gpus, exec_env, concurrency, requests, batch_size, batch_delay, input, workers,
               content_type, image, docker_runtime, backend_profiling, config_properties, inference_model_url):
     input_params = {'url': url,
@@ -96,55 +99,27 @@ def benchmark(test_plan, url, gpus, exec_env, concurrency, requests, batch_size,
     click.secho(f"\n\nConfigured execution parameters are:", fg='green')
     click.secho(f"{execution_params}", fg="blue")
 
-    endpoint_handle = None
+    system_under_test = CppBackend(execution_params)
 
     try:
-        # Setup execution env
-        if execution_params['exec_env'] == 'local':
-            click.secho("\n\nPreparing local execution...", fg='green')
-            endpoint_handle = local_start()
-        else:
-            click.secho("\n\nPreparing docker execution...", fg='green')
-            raise NotImplementedError
+        system_under_test.start()
 
-        check_torchserve_health()
+        system_under_test.check_health()
         run_benchmark()
         # generate_report()
+
     except Exception as e:
         click.secho("Exception occurred!" + str(e), fg='red')
 
-    if endpoint_handle:
-        click.secho("\n\nStopping local instance...", fg="green")
-        os.killpg(os.getpgid(endpoint_handle.pid), signal.SIGINT)
-        endpoint_handle.wait()
-
-
-
-def check_torchserve_health():
-    attempts = 3
-    retry = 0
-    click.secho("*Testing system health...", fg='green')
-    while retry < attempts:
-        try:
-            resp = requests.get(execution_params['inference_url'] + "/ping")
-            if resp.status_code == 200:
-                click.secho(resp.text)
-                return True
-        except Exception as e:
-            retry += 1
-            time.sleep(3)
-    failure_exit("Could not connect to Tochserve instance at " + execution_params['inference_url'])
-
+    system_under_test.stop()
 
 def run_benchmark():
     click.secho("\n\nExecuting Apache Bench tests ...", fg='green')
     click.secho("*Executing inference performance test...", fg='green')
-    ab_cmd = f"ab -c {execution_params['concurrency']}  -n {execution_params['requests']} -k -p {TMP_DIR}/benchmark/input -T " \
+    ab_cmd = f"ab -c {execution_params['concurrency']}  -n {execution_params['requests']} -p {TMP_DIR}/benchmark/input -T " \
              f"{execution_params['content_type']} {execution_params['inference_url']}/{execution_params['inference_model_url']} > {result_file}"
 
     execute(ab_cmd, wait=True)
-
-    stop_torchserve()
 
 
 def register_model():
@@ -180,16 +155,6 @@ def execute_return_stdout(cmd):
     return proc.communicate()[0].strip()
 
 
-def local_start():
-    click.secho("*Setting up environment...", fg='green')
-    prepare_common_dependency()
-    click.secho("*Starting local instance...", fg='green')
-    handle = execute(f"../backend/eager/build/cpp_backend_poc_eager {execution_params['inference_url']} ../backend/eager/models/bert_package_validate.pt 1"
-            f" > {TMP_DIR}/benchmark/logs/model_metrics.log", preexec_fn=os.setsid)
-    time.sleep(3)
-    return handle
-
-
 def docker_torchserve_start():
     prepare_docker_dependency()
     enable_gpu = ''
@@ -222,17 +187,6 @@ def docker_torchserve_start():
                          f"--ts-config /tmp/benchmark/conf/{execution_params['config_properties_name']} > /tmp/benchmark/logs/model_metrics.log\""
     execute(docker_run_cmd, wait=True)
     time.sleep(5)
-
-def prepare_common_dependency():
-    input = execution_params['input']
-    shutil.rmtree(os.path.join(TMP_DIR, "benchmark"), ignore_errors=True)
-    os.makedirs(os.path.join(TMP_DIR, "benchmark/conf"), exist_ok=True)
-    os.makedirs(os.path.join(TMP_DIR, "benchmark/logs"), exist_ok=True)
-
-    shutil.copy(execution_params['config_properties'], os.path.join(TMP_DIR, 'benchmark/conf/'))
-    shutil.copyfile(input, os.path.join(TMP_DIR, 'benchmark/input'))
-
-
 
 def getAPIS():
     MANAGEMENT_API = "http://127.0.0.1:8081"
@@ -474,6 +428,76 @@ def failure_exit(msg):
     click.secho(f"{msg}", fg='red')
     click.secho(f"Test suite terminated due to above failure", fg='red')
     sys.exit()
+
+
+class SystemUnderTest(ABC):
+    def __init__(self):
+        pass
+
+    @abstractmethod
+    def start(self):
+        raise NotImplementedError
+
+    @abstractmethod
+    def check_health(self):
+        raise NotImplementedError
+
+    @abstractmethod
+    def stop(self):
+        raise NotImplementedError
+
+class CppBackend(SystemUnderTest):
+    def __init__(self, execution_params):
+        self._execution_params = execution_params
+        self._handle = None
+
+    def start(self):
+        click.secho("\n\nPreparing local execution...", fg='green')
+        click.secho("*Setting up environment...", fg='green')
+        self.prepare_common_dependency()
+        click.secho("*Starting local instance...", fg='green')
+        self._handle = execute(f"../backend/eager/build/cpp_backend_poc_eager {execution_params['inference_url']} ../backend/eager/models/bert_package.pt 16"
+                f" > {TMP_DIR}/benchmark/logs/model_metrics.log", preexec_fn=os.setsid)
+        time.sleep(3)
+
+    def check_health(self):
+        return self._check_torchserve_health()
+
+    def stop(self):
+        if self._handle:
+            click.secho("\n\nStopping local instance...", fg="green")
+            os.killpg(os.getpgid(self._handle.pid), signal.SIGINT)
+            self._handle.wait()
+
+    def prepare_common_dependency(self):
+        input = self._execution_params['input']
+        shutil.rmtree(os.path.join(TMP_DIR, "benchmark"), ignore_errors=True)
+        os.makedirs(os.path.join(TMP_DIR, "benchmark/conf"), exist_ok=True)
+        os.makedirs(os.path.join(TMP_DIR, "benchmark/logs"), exist_ok=True)
+
+        shutil.copy(self._execution_params['config_properties'], os.path.join(TMP_DIR, 'benchmark/conf/'))
+        shutil.copyfile(input, os.path.join(TMP_DIR, 'benchmark/input'))
+
+    def _check_torchserve_health(self):
+        attempts = 3
+        retry = 0
+        click.secho("*Testing system health...", fg='green')
+        click.secho(TMP_DIR)
+        while retry < attempts:
+            try:
+                click.secho(self._execution_params['inference_url'] + "/ping")
+                resp = requests.get("http://localhost:8090/ping", headers={'User-Agent': 'Mozilla/5.0'})
+                if resp.status_code == 200:
+                    click.secho(resp.text)
+                    return True
+                else:
+                    click.secho(f"Got wrong return code: {resp.status_code}")
+            except Exception as e:
+                retry += 1
+            time.sleep(3)
+            click.secho("*Retrying testing system health...", fg='green')
+        failure_exit("Could not connect to Tochserve instance at " + execution_params['inference_url'])
+        return False
 
 
 if __name__ == '__main__':

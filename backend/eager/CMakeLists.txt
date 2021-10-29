@@ -28,8 +28,8 @@ target_link_libraries(cpp_backend_poc_eager PRIVATE ${Boost_LIBRARIES})
 #
 
 
-find_package(TorchVision REQUIRED)
-target_include_directories(cpp_backend_poc_eager PRIVATE ${TORCHVISION_INCLUDE_DIRS})
+#find_package(TorchVision REQUIRED)
+#target_include_directories(cpp_backend_poc_eager PRIVATE ${TORCHVISION_INCLUDE_DIRS})
 
 find_package(Torch REQUIRED)
 target_include_directories(cpp_backend_poc_eager PRIVATE ${TORCH_INCLUDE_DIRS})
@@ -48,4 +48,4 @@ find_library(
     REQUIRED)
 
 target_link_libraries(cpp_backend_poc_eager PRIVATE ${TORCH_DEPLOY})
-target_link_libraries(cpp_backend_poc_eager PUBLIC TorchVision::TorchVision)
+#target_link_libraries(cpp_backend_poc_eager PUBLIC TorchVision::TorchVision)

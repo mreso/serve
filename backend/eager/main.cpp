@@ -59,7 +59,7 @@ void handle_request(
             std::vector<c10::IValue> args{task.get()};
             std::unordered_map<std::string, c10::IValue> kwargs;
 
-            auto ret = model_hander.call_kwargs(args, kwargs);
+            auto ret = model_hander.callKwargs(args, kwargs);
 
             cout << ret.toIValue() << endl;
 
@@ -76,11 +76,11 @@ void handle_request(
 }
 
 int main(const int argc, const char* const argv[]) {
-  if (argc != 4) {
-    std::cout << "Usage: cpp_backend_poc_eager <uri> <model_to_serve> <thread_count>" << std::endl
+  if (argc != 5) {
+    std::cout << "Usage: cpp_backend_poc_eager <uri> <model_to_serve> <python_path> <thread_count>" << std::endl
               << "Serve <model_to_serve> at <uri> with <thread_count> threads." << std::endl
               << std::endl
-              << "Example: cpp_backend_poc_eager http://localhost:8090 ../models/resnet 4" << std::endl;
+              << "Example: cpp_backend_poc_eager http://localhost:8090 ../models/resnet venv/lib/python3.8/site-packages/ 4" << std::endl;
     return EXIT_FAILURE;
   }
 
@@ -92,15 +92,18 @@ int main(const int argc, const char* const argv[]) {
   // Configurations
   const std::string uri = argv[1];
   const std::string model_to_serve = argv[2];
-  const size_t thread_count = std::stoul(argv[3]);
+  const std::string python_path = argv[3];
+  const size_t thread_count = std::stoul(argv[4]);
 
   std::cout << "Serving " << model_to_serve << " at " << uri << " with " << thread_count << " threads." << std::endl
             << "Press Ctrl+C to terminate." << std::endl;
 
   // Torch Deploy
-  torch::deploy::InterpreterManager manager(thread_count);
-  torch::deploy::Package package = manager.load_package(model_to_serve);
-  torch::deploy::ReplicatedObj handler = package.load_pickle("handler", "handler.pkl");
+
+
+  torch::deploy::InterpreterManager manager(thread_count, python_path);
+  torch::deploy::Package package = manager.loadPackage(model_to_serve);
+  torch::deploy::ReplicatedObj handler = package.loadPickle("handler", "handler.pkl");
 
 
    // HTTP Server
