@@ -58,7 +58,7 @@ Build instructions
     $ cd serve/backend/eager
     $ python3.8 -m venv transformers_venv
     $ source transformers_venv/bin/activate
-    $ pip install -r requirements.txt
+    $ pip install -r requirements.txt -f https://download.pytorch.org/whl/cpu/torch_stable.html
     $ mkdir models
     $ python Export_BERT_model_only.py
 

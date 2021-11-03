@@ -25,8 +25,7 @@ target_compile_definitions(cpp_backend_poc_eager PRIVATE _TURN_OFF_PLATFORM_STRI
 
 # C++ REST SDK does not link against its dependencies it seems so we are doing it
 # manually here.
-target_link_libraries(cpp_backend_poc_eager PRIVATE OpenSSL::Crypto)
-target_link_libraries(cpp_backend_poc_eager PRIVATE ${Boost_LIBRARIES})
+target_link_libraries(cpp_backend_poc_eager PRIVATE OpenSSL::Crypto ${Boost_LIBRARIES} bert_tokenizer)
 
 #
 # PyTorch
