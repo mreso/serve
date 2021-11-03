@@ -4,6 +4,30 @@ project(cpp_backend_poc_eager)
 add_executable(cpp_backend_poc_eager main.cpp)
 target_compile_features(cpp_backend_poc_eager PRIVATE cxx_std_14)
 
+
+add_executable(test_tokenizer test_tokenizer.cpp)
+target_compile_features(test_tokenizer PRIVATE cxx_std_14)
+
+
+#
+# Tokenizer
+#
+add_compile_definitions(SPDLOG_FMT_EXTERNAL)
+add_library(cpp_tokenizer ${RADISH_INSTALL_PREFIX}/radish/bert/bert_tokenizer.cc ${RADISH_INSTALL_PREFIX}/radish/utils/text_tokenizer.cc)
+include_directories(BEFORE ${RADISH_INSTALL_PREFIX} ${UTF8PROC_INSTALL_PREFIX})
+
+find_package(fmt REQUIRED)
+target_link_libraries(cpp_tokenizer fmt::fmt)
+
+#find_package(glog REQUIRED)
+#target_link_libraries(cpp_tokenizer glog::glog)
+find_library(glog_LIBRARY_PATH libglog)
+target_link_libraries(cpp_tokenizer ${glog_LIBRARY_PATH})
+
+
+find_library(utf8proc_LIBRARY_PATH libutf8proc)
+target_link_libraries(cpp_tokenizer ${utf8proc_LIBRARY_PATH})
+
 #
 # Microsoft's C++ REST SDK
 #
@@ -35,6 +59,9 @@ find_package(Torch REQUIRED)
 target_include_directories(cpp_backend_poc_eager PRIVATE ${TORCH_INCLUDE_DIRS})
 target_link_libraries(cpp_backend_poc_eager PRIVATE ${TORCH_LIBRARIES})
 
+target_include_directories(test_tokenizer PRIVATE ${TORCH_INCLUDE_DIRS})
+target_link_libraries(test_tokenizer PRIVATE ${TORCH_LIBRARIES})
+
 
 # torch::deploy currently does not add itself to TORCH_LIBRARIES it seems,
 # presumably because it is in beta.  We hunt down for, and separately link
@@ -47,5 +74,6 @@ find_library(
     PATHS ${TORCH_INSTALL_PREFIX}/../build/lib
     REQUIRED)
 
-target_link_libraries(cpp_backend_poc_eager PRIVATE ${TORCH_DEPLOY})
-#target_link_libraries(cpp_backend_poc_eager PUBLIC TorchVision::TorchVision)
+target_link_libraries(cpp_backend_poc_eager PRIVATE ${TORCH_DEPLOY} cpp_tokenizer)
+
+target_link_libraries(test_tokenizer PRIVATE ${TORCH_DEPLOY} cpp_tokenizer)
