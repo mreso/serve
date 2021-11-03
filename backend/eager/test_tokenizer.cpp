@@ -1,5 +1,5 @@
 // Tokenizer
-#include <radish/bert/bert_tokenizer.h>
+#include "bert_tokenizer.h"
 
 // PyTorch
 #include <torch/torch.h>
@@ -12,58 +12,6 @@
 #include <map>
 #include <string>
 using namespace std;
-
-class BertTokenizer
-{
-  public:
-  BertTokenizer(string vocab_file)
-  {
-    assert(tokenizer_.Init("vocab.txt"));
-  }
-
-  ~BertTokenizer()
-  {
-  }
-
-  std::unordered_map<std::string, c10::IValue> encode_plus(string sequence_1, string sequence_2)
-  {
-    vector<int> input_ids;
-    input_ids.push_back(tokenizer_.ClsId());
-    vector<int> token_type_ids;
-    vector<int> attention_mask;
-
-    auto ids = tokenizer_.Encode(sequence_1);
-
-    for(int i : ids){
-      input_ids.push_back(i);
-    }
-    input_ids.push_back(tokenizer_.SepId());
-    token_type_ids.resize(input_ids.size(), 0);
-
-    ids = tokenizer_.Encode(sequence_2);
-
-    for(int i : ids)
-      input_ids.push_back(i);
-    input_ids.push_back(tokenizer_.SepId());
-    token_type_ids.resize(input_ids.size(), 1);
-    attention_mask.resize(input_ids.size(), 1);
-
-    std::unordered_map<std::string, c10::IValue> kwargs;
-    kwargs["input_ids"] = torch::tensor(input_ids).unsqueeze(0);
-    kwargs["token_type_ids"] = torch::tensor(token_type_ids).unsqueeze(0);
-    kwargs["attention_mask"] = torch::tensor(attention_mask).unsqueeze(0);
-
-    return kwargs;
-  }
-
-  static BertTokenizer InitFromFile(string vocab_file)
-  {
-    return BertTokenizer(vocab_file);
-  }
-
-  protected:
-  radish::BertTokenizer tokenizer_;
-};
 
 
 

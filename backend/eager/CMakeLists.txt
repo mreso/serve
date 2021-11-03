@@ -10,25 +10,6 @@ target_compile_features(test_tokenizer PRIVATE cxx_std_14)
 
 
 #
-# Tokenizer
-#
-add_compile_definitions(SPDLOG_FMT_EXTERNAL)
-add_library(cpp_tokenizer ${RADISH_INSTALL_PREFIX}/radish/bert/bert_tokenizer.cc ${RADISH_INSTALL_PREFIX}/radish/utils/text_tokenizer.cc)
-include_directories(BEFORE ${RADISH_INSTALL_PREFIX} ${UTF8PROC_INSTALL_PREFIX})
-
-find_package(fmt REQUIRED)
-target_link_libraries(cpp_tokenizer fmt::fmt)
-
-#find_package(glog REQUIRED)
-#target_link_libraries(cpp_tokenizer glog::glog)
-find_library(glog_LIBRARY_PATH libglog)
-target_link_libraries(cpp_tokenizer ${glog_LIBRARY_PATH})
-
-
-find_library(utf8proc_LIBRARY_PATH libutf8proc)
-target_link_libraries(cpp_tokenizer ${utf8proc_LIBRARY_PATH})
-
-#
 # Microsoft's C++ REST SDK
 #
 
@@ -59,6 +40,22 @@ find_package(Torch REQUIRED)
 target_include_directories(cpp_backend_poc_eager PRIVATE ${TORCH_INCLUDE_DIRS})
 target_link_libraries(cpp_backend_poc_eager PRIVATE ${TORCH_LIBRARIES})
 
+
+#
+# Tokenizer
+#
+add_compile_definitions(SPDLOG_FMT_EXTERNAL)
+add_library(bert_tokenizer bert_tokenizer.cpp ${RADISH_INSTALL_PREFIX}/radish/bert/bert_tokenizer.cc ${RADISH_INSTALL_PREFIX}/radish/utils/text_tokenizer.cc)
+include_directories(BEFORE ${RADISH_INSTALL_PREFIX} ${UTF8PROC_INSTALL_PREFIX} ${TORCH_INCLUDE_DIRS})
+
+find_package(fmt REQUIRED)
+find_library(glog_LIBRARY_PATH libglog)
+
+target_link_libraries(bert_tokenizer fmt::fmt ${TORCH_LIBRARIES} ${glog_LIBRARY_PATH})
+
+find_library(utf8proc_LIBRARY_PATH libutf8proc)
+target_link_libraries(bert_tokenizer ${utf8proc_LIBRARY_PATH})
+
 target_include_directories(test_tokenizer PRIVATE ${TORCH_INCLUDE_DIRS})
 target_link_libraries(test_tokenizer PRIVATE ${TORCH_LIBRARIES})
 
@@ -74,6 +71,6 @@ find_library(
     PATHS ${TORCH_INSTALL_PREFIX}/../build/lib
     REQUIRED)
 
-target_link_libraries(cpp_backend_poc_eager PRIVATE ${TORCH_DEPLOY} cpp_tokenizer)
+target_link_libraries(cpp_backend_poc_eager PRIVATE ${TORCH_DEPLOY} bert_tokenizer)
 
-target_link_libraries(test_tokenizer PRIVATE ${TORCH_DEPLOY} cpp_tokenizer)
+target_link_libraries(test_tokenizer PRIVATE ${TORCH_DEPLOY} bert_tokenizer)
