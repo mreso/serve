@@ -32,7 +32,8 @@ default_ab_params = {'url': "https://torchserve.pytorch.org/mar_files/resnet-18.
                      'docker_runtime': '',
                      'backend_profiling': False,
                      'config_properties': 'config.properties',
-                     'inference_model_url': 'predictions/benchmark'
+                     'inference_model_url': 'predictions/benchmark',
+                     'backend_parameters': '',
                      }
 TMP_DIR = tempfile.gettempdir()
 execution_params = default_ab_params.copy()
@@ -69,12 +70,14 @@ def json_provider(file_path, cmd_name):
               help='config.properties path, Default config.properties')
 @click.option('--inference_model_url', '-imu', default='predictions/benchmark',
               help='Inference function url - can be either for predictions or explanations. Default predictions/benchmark')
+@click.option('--backend_parameters', '-bp', default='',
+              help='Additional parameters for backend')
 
 @click_config_file.configuration_option(provider=json_provider, implicit=False,
                                         help="Read configuration from a JSON file")
 
 def benchmark(test_plan, url, gpus, exec_env, concurrency, requests, batch_size, batch_delay, input, workers,
-              content_type, image, docker_runtime, backend_profiling, config_properties, inference_model_url):
+              content_type, image, docker_runtime, backend_profiling, config_properties, inference_model_url, backend_parameters):
     input_params = {'url': url,
                     'gpus': gpus,
                     'exec_env': exec_env,
@@ -89,7 +92,8 @@ def benchmark(test_plan, url, gpus, exec_env, concurrency, requests, batch_size,
                     'docker_runtime': docker_runtime,
                     'backend_profiling': backend_profiling,
                     'config_properties': config_properties,
-                    'inference_model_url': inference_model_url
+                    'inference_model_url': inference_model_url,
+                    'backend_parameters': backend_parameters,
                     }
 
     # set ab params
@@ -456,7 +460,8 @@ class CppBackend(SystemUnderTest):
         click.secho("*Setting up environment...", fg='green')
         self.prepare_common_dependency()
         click.secho("*Starting local instance...", fg='green')
-        self._handle = execute(f"../backend/eager/build/cpp_backend_poc_eager {execution_params['inference_url']} ../backend/eager/models/bert_package.pt 16"
+        # self._handle = execute(f"../backend/eager/build/cpp_backend_poc_eager {execution_params['inference_url']}"
+        self._handle = execute(f"../backend/eager/build/cpp_backend_poc_eager {execution_params['inference_url']} {execution_params['backend_parameters']}"
                 f" > {TMP_DIR}/benchmark/logs/model_metrics.log", preexec_fn=os.setsid)
         time.sleep(3)
 
@@ -471,6 +476,7 @@ class CppBackend(SystemUnderTest):
 
     def prepare_common_dependency(self):
         input = self._execution_params['input']
+        print(input)
         shutil.rmtree(os.path.join(TMP_DIR, "benchmark"), ignore_errors=True)
         os.makedirs(os.path.join(TMP_DIR, "benchmark/conf"), exist_ok=True)
         os.makedirs(os.path.join(TMP_DIR, "benchmark/logs"), exist_ok=True)
