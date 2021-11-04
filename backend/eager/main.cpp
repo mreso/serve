@@ -107,18 +107,21 @@ class TorchScriptSequenceClassifier: public ISequenceClassifier {
 
 void handle_request(
    http_request request,
-   unique_ptr<ISequenceClassifier> &classifier)
-{
+   unique_ptr<ISequenceClassifier> &classifier) {
+
+   status_code code = status_codes::OK;
    utility::string_t answer;
    request
-      .extract_string()
-      .then([&](pplx::task<utility::string_t> task) {
+      .extract_json()
+      .then([&](pplx::task<JsonValue> task) {
          try
          {
-            JsonValue json = JsonValue::parse(task.get());
+            JsonValue json = task.get();
 
             if(! (json.has_field("sequence_0") && json.has_field("sequence_1")) ) {
-               request.reply(status_codes::InternalError, "JSON object does not contain necessary fields!");
+               code = status_codes::InternalError;
+               answer = "JSON object does not contain necessary fields!";
+               return;
             }
 
             torch::Tensor ret = classifier->classify(json["sequence_0"].as_string(), json["sequence_1"].as_string());
@@ -134,7 +137,7 @@ void handle_request(
       })
       .wait();
 
-   request.reply(status_codes::OK, answer);
+   request.reply(code, answer);
 }
 
 int main(const int argc, const char* const argv[]) {
