@@ -110,7 +110,7 @@ def benchmark(test_plan, url, gpus, exec_env, concurrency, requests, batch_size,
 
         system_under_test.check_health()
         run_benchmark()
-        # generate_report()
+        generate_report()
 
     except Exception as e:
         click.secho("Exception occurred!" + str(e), fg='red')
@@ -461,7 +461,9 @@ class CppBackend(SystemUnderTest):
         self.prepare_common_dependency()
         click.secho("*Starting local instance...", fg='green')
         # self._handle = execute(f"../backend/eager/build/cpp_backend_poc_eager {execution_params['inference_url']}"
-        self._handle = execute(f"../backend/eager/build/cpp_backend_poc_eager {execution_params['inference_url']} {execution_params['backend_parameters']}"
+        parameters = f"{execution_params['inference_url']} {execution_params['url']} {execution_params['workers']}"
+        parameters += f" {execution_params['backend_parameters']}" if execution_params['backend_parameters'] else ""
+        self._handle = execute(f"../backend/eager/build/cpp_backend_poc_eager {parameters}"
                 f" > {TMP_DIR}/benchmark/logs/model_metrics.log", preexec_fn=os.setsid)
         time.sleep(3)
 

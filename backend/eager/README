@@ -20,7 +20,7 @@ Build instructions
 
         On CentOS 8: $ sudo dnf install bzip2-devel gdbm-devel libffi-devel libnsl2-devel  libtirpc-devel ncurses-devel readline-devel xz-devel glog-devel spdlog-devel utf8cpp-devel
 
-        On Ubuntu: $ sudo apt get install libomp-dev libffi-dev libncursesw5-dev libbz2-dev libgdbm-dev libtirpc-dev libreadline-dev libgtest-dev
+        On Ubuntu: $ sudo apt get install libomp-dev libffi-dev libncursesw5-dev libbz2-dev libgdbm-dev libtirpc-dev libreadline-dev libgtest-dev libfmt-dev libspdlog-dev libutfcpp-dev
 
   1-e - Build PyTorch with torch::deploy:
 
@@ -66,7 +66,7 @@ Build instructions
 
     $ mkdir ./build
     $ cd ./build
-    $ cmake -DCMAKE_PREFIX_PATH="<cpprestsdk_ROOT_DIR>/install;pytorch_ROOT_DIR>" -DSPDLOG_FMT_EXTERNAL=ON -DRADISH_INSTALL_PREFIX="<PATH_TO_RADISH_REPO>"..
+    $ cmake -DCMAKE_PREFIX_PATH="<cpprestsdk_ROOT_DIR>/install;<pytorch_ROOT_DIR>" -DSPDLOG_FMT_EXTERNAL=ON -DRADISH_INSTALL_PREFIX="<PATH_TO_RADISH_REPO>" ..
     $ make all -j16
     $ curl -o vocab.txt https://huggingface.co/bert-base-cased-finetuned-mrpc/resolve/main/vocab.txt
 
