@@ -14,6 +14,7 @@ import pandas as pd
 import numpy as np
 import requests
 import tempfile
+import traceback
 import os
 from urllib.parse import urlparse
 
@@ -34,6 +35,7 @@ default_ab_params = {'url': "https://torchserve.pytorch.org/mar_files/resnet-18.
                      'config_properties': 'config.properties',
                      'inference_model_url': 'predictions/benchmark',
                      'backend_parameters': '',
+                     'inference_url': 'http://localhost/',
                      }
 TMP_DIR = tempfile.gettempdir()
 execution_params = default_ab_params.copy()
@@ -113,6 +115,7 @@ def benchmark(test_plan, url, gpus, exec_env, concurrency, requests, batch_size,
         generate_report()
 
     except Exception as e:
+        traceback.print_exc()
         click.secho("Exception occurred!" + str(e), fg='red')
 
     system_under_test.stop()
@@ -241,7 +244,7 @@ def extract_metrics():
         pattern = re.compile(v)
         for line in lines:
             if pattern.search(line):
-                all_lines.append(line.split("|")[0].split(':')[3].strip())
+                all_lines.append(line.split("|")[0].split(':')[4].strip())
 
         out_fname = f'{TMP_DIR}/benchmark/{k}'
         click.secho(f"\nWriting extracted {v} metrics to {out_fname} ", fg='green')
@@ -463,8 +466,8 @@ class CppBackend(SystemUnderTest):
         # self._handle = execute(f"../backend/eager/build/cpp_backend_poc_eager {execution_params['inference_url']}"
         parameters = f"{execution_params['inference_url']} {execution_params['url']} {execution_params['workers']}"
         parameters += f" {execution_params['backend_parameters']}" if execution_params['backend_parameters'] else ""
-        self._handle = execute(f"../backend/eager/build/cpp_backend_poc_eager {parameters}"
-                f" > {TMP_DIR}/benchmark/logs/model_metrics.log", preexec_fn=os.setsid)
+        self._handle = execute(f"GLOG_logtostderr=1  ../backend/eager/build/cpp_backend_poc_eager {parameters}"
+                f" > {TMP_DIR}/benchmark/logs/model_metrics.log 2>&1", preexec_fn=os.setsid)
         time.sleep(3)
 
     def check_health(self):
@@ -494,7 +497,7 @@ class CppBackend(SystemUnderTest):
         while retry < attempts:
             try:
                 click.secho(self._execution_params['inference_url'] + "/ping")
-                resp = requests.get("http://localhost:8090/ping", headers={'User-Agent': 'Mozilla/5.0'})
+                resp = requests.get("http://localhost:8080/ping", headers={'User-Agent': 'Mozilla/5.0'})
                 if resp.status_code == 200:
                     click.secho(resp.text)
                     return True
