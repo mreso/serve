@@ -39,6 +39,12 @@ find_package(Torch REQUIRED)
 target_include_directories(cpp_backend_poc_eager PRIVATE ${TORCH_INCLUDE_DIRS})
 target_link_libraries(cpp_backend_poc_eager PRIVATE ${TORCH_LIBRARIES})
 
+#
+# Google logging
+# 
+#find_package (glog 0.3.0 REQUIRED)
+find_library(GLOG_LIBRARIES libglog.so.0)
+
 
 #
 # Tokenizer
@@ -48,11 +54,13 @@ add_library(bert_tokenizer bert_tokenizer.cpp ${RADISH_INSTALL_PREFIX}/radish/be
 include_directories(BEFORE ${RADISH_INSTALL_PREFIX} ${UTF8PROC_INSTALL_PREFIX} ${TORCH_INCLUDE_DIRS})
 
 find_package(fmt REQUIRED)
-find_library(glog_LIBRARY_PATH libglog)
+#find_library(glog_LIBRARY_PATH libglog)
+set(glog_LIBRARY_PATH /usr/lib/x86_64-linux-gnu/libglog.so)
 
 target_link_libraries(bert_tokenizer fmt::fmt ${TORCH_LIBRARIES} ${glog_LIBRARY_PATH})
 
-find_library(utf8proc_LIBRARY_PATH libutf8proc)
+#find_library(utf8proc_LIBRARY_PATH libutf8proc)
+set(utf8proc_LIBRARY_PATH /usr/lib/x86_64-linux-gnu/libutf8proc.so)
 target_link_libraries(bert_tokenizer ${utf8proc_LIBRARY_PATH})
 
 target_include_directories(test_tokenizer PRIVATE ${TORCH_INCLUDE_DIRS})
@@ -70,6 +78,6 @@ find_library(
     PATHS ${TORCH_INSTALL_PREFIX}/../build/lib
     REQUIRED)
 
-target_link_libraries(cpp_backend_poc_eager PRIVATE ${TORCH_DEPLOY} bert_tokenizer)
+target_link_libraries(cpp_backend_poc_eager PRIVATE bert_tokenizer ${TORCH_DEPLOY} ${GLOG_LIBRARIES})
 
-target_link_libraries(test_tokenizer PRIVATE ${TORCH_DEPLOY} bert_tokenizer)
+target_link_libraries(test_tokenizer PRIVATE bert_tokenizer ${TORCH_DEPLOY})

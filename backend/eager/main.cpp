@@ -5,6 +5,9 @@
 #include <cpprest/http_listener.h>
 #include <cpprest/json.h>
 
+// Google Log
+#include <glog/logging.h>
+
 // PyTorch
 #include <torch/torch.h>
 #include <torch/types.h>
@@ -54,6 +57,10 @@ void display_json(
    // cout << jvalue.serialize() << endl;
 }
 
+void log_metric(string name, float value, string unit="ms") {
+   LOG(INFO) << name << "." << unit << ":" << value << "|" << endl;
+}
+
 class ISequenceClassifier {
    public:
    virtual torch::Tensor classify(string sequence_0, string sequence_1) = 0;
@@ -94,11 +101,24 @@ class TorchPackageSequenceClassifier: public ISequenceClassifier {
 
    torch::Tensor classify(string sequence_0, string sequence_1) {
       acquire();
+
+      auto handler_time_begin = chrono::steady_clock::now();
+
       chrono::steady_clock::time_point begin = chrono::steady_clock::now();
       auto kwargs = tokenizer_.encode_plus(sequence_0, sequence_1);
       chrono::steady_clock::time_point end = chrono::steady_clock::now();
 
-      cout << "TokenizationTime: " << chrono::duration_cast<chrono::milliseconds>(end - begin).count() << endl;
+      log_metric("TokenizationTime", chrono::duration_cast<chrono::milliseconds>(end - begin).count());
+
+      
+
+      if (torch::cuda::is_available()) {
+         torch::Device device = torch::kCUDA;
+
+         kwargs["input_ids"] = kwargs["input_ids"].toTensor().to(device);
+         kwargs["token_type_ids"] = kwargs["token_type_ids"].toTensor().to(device);
+         kwargs["attention_mask"] = kwargs["attention_mask"].toTensor().to(device);
+      }
 
       begin = chrono::steady_clock::now();
       auto ret = model_handler_.callKwargs({}, kwargs).toIValue().toTuple()->elements()[0];
@@ -106,7 +126,12 @@ class TorchPackageSequenceClassifier: public ISequenceClassifier {
       auto res = torch::softmax(ret.toTensor(),1);
       end = chrono::steady_clock::now();
 
-      cout << "ModelTime: " << chrono::duration_cast<chrono::milliseconds>(end - begin).count() << endl;
+      log_metric("ModelTime", chrono::duration_cast<chrono::milliseconds>(end - begin).count());
+
+
+      auto handler_time_end = chrono::steady_clock::now();
+
+      log_metric("HandlerTime", chrono::duration_cast<chrono::milliseconds>(handler_time_end - handler_time_begin).count());
 
       release();
 
@@ -134,22 +159,35 @@ class TorchScriptSequenceClassifier: public ISequenceClassifier {
    torch::Tensor classify(string sequence_0, string sequence_1) {
       acquire();
 
+      auto handler_time_begin = chrono::steady_clock::now();
+
       chrono::steady_clock::time_point begin = chrono::steady_clock::now();
       auto kwargs = tokenizer_.encode_plus(sequence_0, sequence_1);
       chrono::steady_clock::time_point end = chrono::steady_clock::now();
 
-      cout << "TokenizationTime: " << chrono::duration_cast<chrono::milliseconds>(end - begin).count() << endl;
+      log_metric("TokenizationTime", chrono::duration_cast<chrono::milliseconds>(end - begin).count());
+
+      if (torch::cuda::is_available()) {
+         torch::Device device = torch::kCUDA;
+
+         kwargs["input_ids"] = kwargs["input_ids"].toTensor().to(device);
+         kwargs["token_type_ids"] = kwargs["token_type_ids"].toTensor().to(device);
+         kwargs["attention_mask"] = kwargs["attention_mask"].toTensor().to(device);
+      }
 
       begin = chrono::steady_clock::now();
       auto ret = model_.forward({}, kwargs);
       end = chrono::steady_clock::now();
 
-      cout << "ModelTime: " << chrono::duration_cast<chrono::milliseconds>(end - begin).count() << endl;
+      log_metric("ModelTime", chrono::duration_cast<chrono::milliseconds>(end - begin).count());
 
       auto ret2 = ret.toIValue().toTuple()->elements()[0];
 
       auto res = torch::softmax(ret2.toTensor(),1);
 
+      auto handler_time_end = chrono::steady_clock::now();
+
+      log_metric("HandlerTime", chrono::duration_cast<chrono::milliseconds>(handler_time_end - handler_time_begin).count());
 
       release();
 
@@ -169,11 +207,13 @@ void handle_request(
 
    status_code code = status_codes::OK;
    utility::string_t answer;
+
    request
       .extract_json()
       .then([&](pplx::task<JsonValue> task) {
          try
          {
+            auto begin = chrono::steady_clock::now();
             JsonValue json = task.get();
 
             if(! (json.has_field("sequence_0") && json.has_field("sequence_1")) ) {
@@ -187,6 +227,11 @@ void handle_request(
             float paraphrased_percent = 100.0 * ret[0][1].item<float>();
             answer = to_string((int)round(paraphrased_percent)) + "% paraphrase";
 
+            auto end = chrono::steady_clock::now();
+
+            log_metric("PredictionTime", chrono::duration_cast<chrono::milliseconds>(end - begin).count());
+            log_metric("QueueTime", 0);
+            log_metric("WorkerThreadTime", 0);
          }
          catch (http_exception const & e)
          {
@@ -212,6 +257,8 @@ int main(const int argc, const char* const argv[]) {
       return EXIT_FAILURE;
    }
 
+   google::InitGoogleLogging("log.txt");
+
    // Configurations
    const std::string uri = argv[1];
    const std::string model_to_serve = argv[2];
@@ -231,14 +278,6 @@ int main(const int argc, const char* const argv[]) {
       classifier = unique_ptr<ISequenceClassifier>(new TorchScriptSequenceClassifier(model_to_serve, tokenizer, thread_count));
    }
 
-   string sequence_0 = "Eating apples is a health risk";
-   string sequence_1 = "Apples are especially bad for your health";
-
-   classifier->classify(sequence_0, sequence_1);
-   classifier->classify(sequence_0, sequence_1);
-
-
-   return EXIT_SUCCESS;
    std::cout << "Serving " << model_to_serve << " at " << uri << " with " << thread_count << " threads." << std::endl;
    cout << "Press Ctrl+C to terminate." << std::endl;
 

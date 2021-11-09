@@ -34,27 +34,25 @@ int main(const int argc, const char* const argv[]) {
 
   BertTokenizer tokenizer("vocab.txt");
 
-  // Torch Deploy
-  torch::deploy::InterpreterManager manager(1, python_path);
-  torch::deploy::Package package = manager.loadPackage(torch_package_model);
-  torch::deploy::ReplicatedObj model = package.loadPickle("model", "model.pkl");
-
-  auto run_model = [&tokenizer, &model](string seq_1, string seq_2) {
-    auto kwargs = tokenizer.encode_plus(seq_1, seq_2);
-    auto ret = model.callKwargs({}, kwargs).toIValue().toTuple()->elements()[0];
-    float paraphrased_percent = 100.0 * torch::softmax(ret.toTensor(),1)[0][1].item<float>();
-    cout << round(paraphrased_percent) << "% paraphrase" << endl;
-  };
-
-  run_model(sequence_0, sequence_1);
-  run_model(sequence_0, sequence_2);
-
 
   // Torch script
   auto traced = torch::jit::load(torch_script_model);
 
+  traced.eval();
+
   auto run_traced = [&tokenizer, &traced](string seq_1, string seq_2) {
     auto kwargs = tokenizer.encode_plus(seq_1, seq_2);
+
+    torch::Device device = torch::kCPU;
+    if (torch::cuda::is_available()) {
+      std::cout << "CUDA is available! Training on GPU." << std::endl;
+      device = torch::kCUDA;
+    }
+
+    kwargs["input_ids"] = kwargs["input_ids"].toTensor().to(device);
+    kwargs["token_type_ids"] = kwargs["token_type_ids"].toTensor().to(device);
+    kwargs["attention_mask"] = kwargs["attention_mask"].toTensor().to(device);
+
     auto ret = traced.forward({}, kwargs).toIValue().toTuple()->elements()[0];
     float paraphrased_percent = 100.0 * torch::softmax(ret.toTensor(),1)[0][1].item<float>();
     cout << round(paraphrased_percent) << "% paraphrase" << endl;
@@ -62,4 +60,30 @@ int main(const int argc, const char* const argv[]) {
 
   run_traced(sequence_0, sequence_1);
   run_traced(sequence_0, sequence_2);
+
+
+  // Torch Deploy
+  torch::deploy::InterpreterManager manager(1, python_path);
+  torch::deploy::Package package = manager.loadPackage(torch_package_model);
+  torch::deploy::ReplicatedObj model = package.loadPickle("model", "model.pkl");
+
+  auto run_model = [&tokenizer, &model](string seq_1, string seq_2) {
+    auto kwargs = tokenizer.encode_plus(seq_1, seq_2);
+
+    torch::Device device = torch::kCPU;
+    if (torch::cuda::is_available()) {
+      std::cout << "CUDA is available! Training on GPU." << std::endl;
+      device = torch::kCUDA;
+    }
+
+    kwargs["input_ids"] = kwargs["input_ids"].toTensor().to(device);
+    kwargs["token_type_ids"] = kwargs["token_type_ids"].toTensor().to(device);
+    kwargs["attention_mask"] = kwargs["attention_mask"].toTensor().to(device);
+    auto ret = model.callKwargs({}, kwargs).toIValue().toTuple()->elements()[0];
+    float paraphrased_percent = 100.0 * torch::softmax(ret.toTensor(),1)[0][1].item<float>();
+    cout << round(paraphrased_percent) << "% paraphrase" << endl;
+  };
+
+  run_model(sequence_0, sequence_1);
+  run_model(sequence_0, sequence_2);
 }

@@ -17,6 +17,8 @@ tokenizer = AutoTokenizer.from_pretrained("bert-base-cased-finetuned-mrpc", use_
 def run_model(model_, s0, s1):
     token_ids_mask = tokenizer.encode_plus(s0, s1, return_tensors="pt")
 
+    token_ids_mask = {k:v.to(model.device) for k,v in token_ids_mask.items()}
+
     classification_logits = model_(**token_ids_mask)
 
     paraphrase_results = torch.softmax(classification_logits[0], dim=1).cpu().tolist()[0]
@@ -26,6 +28,9 @@ def run_model(model_, s0, s1):
 
 model = AutoModelForSequenceClassification.from_pretrained("bert-base-cased-finetuned-mrpc", torchscript=True)
 model.eval()
+
+torch.cuda.init()
+model = model.to('cuda')
 
 print('Original Model')
 print(run_model(model, sequence_0, sequence_1))
@@ -74,12 +79,12 @@ with package.PackageExporter(package_path) as bert_package_exp:
     bert_package_exp.save_pickle("model", "model.pkl", model)
 
 ## Export with TorchScript
-max_sequence_length = 256
+max_sequence_length = 64
 
 dummy_input = [
-        torch.zeros([1, max_sequence_length], dtype=torch.long),
-        torch.zeros([1, max_sequence_length], dtype=torch.long),
-        torch.ones([1, max_sequence_length], dtype=torch.long),
+        torch.zeros([1, max_sequence_length], dtype=torch.long, device=model.device),
+        torch.zeros([1, max_sequence_length], dtype=torch.long, device=model.device),
+        torch.ones([1, max_sequence_length], dtype=torch.long, device=model.device),
         ]
 
 traced_model = torch.jit.trace(model, dummy_input)
