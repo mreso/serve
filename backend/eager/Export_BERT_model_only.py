@@ -29,8 +29,9 @@ def run_model(model_, s0, s1):
 model = AutoModelForSequenceClassification.from_pretrained("bert-base-cased-finetuned-mrpc", torchscript=True)
 model.eval()
 
-torch.cuda.init()
-model = model.to('cuda')
+if torch.cuda.is_available():
+  torch.cuda.init()
+  model = model.to('cuda')
 
 print('Original Model')
 print(run_model(model, sequence_0, sequence_1))
