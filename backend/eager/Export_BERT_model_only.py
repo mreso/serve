@@ -2,6 +2,7 @@
 # coding: utf-8
 
 import os
+import time
 from unittest.mock import patch
 
 import torch
@@ -19,7 +20,9 @@ def run_model(model_, s0, s1):
 
     token_ids_mask = {k:v.to(model.device) for k,v in token_ids_mask.items()}
 
+    st = time.time()
     classification_logits = model_(**token_ids_mask)
+    print(f"Execution time: {1000*(time.time() - st):.2f} ms")
 
     paraphrase_results = torch.softmax(classification_logits[0], dim=1).cpu().tolist()[0]
 
@@ -104,6 +107,7 @@ print(run_model(pickled_model, sequence_0, sequence_1))
 print(run_model(pickled_model, sequence_0, sequence_2))
 
 loaded_traced_model = torch.jit.load(traced_path)
+
 
 print('Traced Model')
 print(run_model(loaded_traced_model, sequence_0, sequence_1))
