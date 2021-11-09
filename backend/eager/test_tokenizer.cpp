@@ -7,6 +7,7 @@
 #include <torch/csrc/deploy/deploy.h>
 
 // C++ STD
+#include <chrono>
 #include <cmath>
 #include <iostream>
 #include <map>
@@ -53,9 +54,15 @@ int main(const int argc, const char* const argv[]) {
     kwargs["token_type_ids"] = kwargs["token_type_ids"].toTensor().to(device);
     kwargs["attention_mask"] = kwargs["attention_mask"].toTensor().to(device);
 
+
+    chrono::steady_clock::time_point begin = chrono::steady_clock::now();
+
     auto ret = traced.forward({}, kwargs).toIValue().toTuple()->elements()[0];
     float paraphrased_percent = 100.0 * torch::softmax(ret.toTensor(),1)[0][1].item<float>();
     cout << round(paraphrased_percent) << "% paraphrase" << endl;
+
+    chrono::steady_clock::time_point end = chrono::steady_clock::now();
+    cout << "ModelTime (ms): " << chrono::duration_cast<chrono::milliseconds>(end - begin).count() << endl;
   };
 
   run_traced(sequence_0, sequence_1);
@@ -79,9 +86,13 @@ int main(const int argc, const char* const argv[]) {
     kwargs["input_ids"] = kwargs["input_ids"].toTensor().to(device);
     kwargs["token_type_ids"] = kwargs["token_type_ids"].toTensor().to(device);
     kwargs["attention_mask"] = kwargs["attention_mask"].toTensor().to(device);
+
+    chrono::steady_clock::time_point begin = chrono::steady_clock::now();
     auto ret = model.callKwargs({}, kwargs).toIValue().toTuple()->elements()[0];
     float paraphrased_percent = 100.0 * torch::softmax(ret.toTensor(),1)[0][1].item<float>();
     cout << round(paraphrased_percent) << "% paraphrase" << endl;
+    chrono::steady_clock::time_point end = chrono::steady_clock::now();
+    cout << "ModelTime (ms): " << chrono::duration_cast<chrono::milliseconds>(end - begin).count() << endl;
   };
 
   run_model(sequence_0, sequence_1);

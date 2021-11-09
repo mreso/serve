@@ -20,7 +20,7 @@ Build instructions
 
         On CentOS 8: $ sudo dnf install bzip2-devel gdbm-devel libffi-devel libnsl2-devel  libtirpc-devel ncurses-devel readline-devel xz-devel glog-devel spdlog-devel utf8cpp-devel
 
-        On Ubuntu: $ sudo apt get install libomp-dev libffi-dev libncursesw5-dev libbz2-dev libgdbm-dev libtirpc-dev libreadline-dev libgtest-dev libfmt-dev libspdlog-dev libutfcpp-dev
+        On Ubuntu: $ sudo apt install libomp-dev libffi-dev libncursesw5-dev libbz2-dev libgdbm-dev libtirpc-dev libreadline-dev libgtest-dev libfmt-dev libspdlog-dev libutfcpp-dev libutf8proc-dev
 
   1-e - Build PyTorch with torch::deploy:
 
