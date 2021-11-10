@@ -61,44 +61,12 @@ void log_metric(string name, float value, string unit="ms") {
    LOG(INFO) << name << "." << unit << ":" << value << "|" << endl;
 }
 
-class ISequenceClassifier {
+class SequenceClassifier {
    public:
-   virtual torch::Tensor classify(string sequence_0, string sequence_1) = 0;
-
-   protected:
-
-   void release() {
-      std::lock_guard<decltype(mtx_)> lock(mtx_);
-      ++count_;
-      cv_.notify_one();
-   }
-
-   void acquire() {
-      std::unique_lock<decltype(mtx_)> lock(mtx_);
-      while(!count_) {
-         cv_.wait(lock);
-      }
-      --count_;
-   }
-
-   std::mutex mtx_;
-   std::condition_variable cv_;
-   size_t count_;
-};
-
-class TorchPackageSequenceClassifier: public ISequenceClassifier {
-   public:
-   TorchPackageSequenceClassifier(std::string model_to_serve, size_t thread_count, std::string python_path, BertTokenizer &tokenizer)
-   : manager_(thread_count, python_path),tokenizer_(tokenizer) {
-      count_ = thread_count;
-      torch::deploy::Package package = manager_.loadPackage(model_to_serve);
-      model_handler_ = package.loadPickle("model", "model.pkl");
-   }
-
-   ~TorchPackageSequenceClassifier() {
+   SequenceClassifier(BertTokenizer &tokenizer)
+      :tokenizer_(tokenizer){
 
    }
-
    torch::Tensor classify(string sequence_0, string sequence_1) {
       acquire();
 
@@ -121,7 +89,8 @@ class TorchPackageSequenceClassifier: public ISequenceClassifier {
       }
 
       begin = chrono::steady_clock::now();
-      auto ret = model_handler_.callKwargs({}, kwargs).toIValue().toTuple()->elements()[0];
+
+      auto ret = apply_model(kwargs);
 
       auto res = torch::softmax(ret.toTensor(),1);
       end = chrono::steady_clock::now();
@@ -139,15 +108,56 @@ class TorchPackageSequenceClassifier: public ISequenceClassifier {
    }
 
    protected:
-   torch::deploy::InterpreterManager manager_;
-   torch::deploy::ReplicatedObj model_handler_;
+
+   void release() {
+      std::lock_guard<decltype(mtx_)> lock(mtx_);
+      ++count_;
+      cv_.notify_one();
+   }
+
+   void acquire() {
+      std::unique_lock<decltype(mtx_)> lock(mtx_);
+      while(!count_) {
+         cv_.wait(lock);
+      }
+      --count_;
+   }
+
+   virtual  c10::IValue apply_model(std::unordered_map<std::string, c10::IValue> kwargs) = 0;
+
+   std::mutex mtx_;
+   std::condition_variable cv_;
+   size_t count_;
    BertTokenizer &tokenizer_;
 };
 
-class TorchScriptSequenceClassifier: public ISequenceClassifier {
+class TorchPackageSequenceClassifier: public SequenceClassifier {
+   public:
+   TorchPackageSequenceClassifier(std::string model_to_serve, size_t thread_count, std::string python_path, BertTokenizer &tokenizer)
+   : manager_(thread_count, python_path),SequenceClassifier(tokenizer) {
+      count_ = thread_count;
+      torch::deploy::Package package = manager_.loadPackage(model_to_serve);
+      model_handler_ = package.loadPickle("model", "model.pkl");
+   }
+
+   ~TorchPackageSequenceClassifier() {
+
+   }
+   protected:
+
+   c10::IValue apply_model(std::unordered_map<std::string, c10::IValue> kwargs){
+      auto ret = model_handler_.callKwargs({}, kwargs).toIValue().toTuple()->elements()[0];
+      return ret;
+   }
+
+   torch::deploy::InterpreterManager manager_;
+   torch::deploy::ReplicatedObj model_handler_;
+};
+
+class TorchScriptSequenceClassifier: public SequenceClassifier {
    public:
    TorchScriptSequenceClassifier(std::string model_to_serve, BertTokenizer &tokenizer, size_t thread_count)
-   : model_(torch::jit::load(model_to_serve)),tokenizer_(tokenizer) {
+   : model_(torch::jit::load(model_to_serve)),SequenceClassifier(tokenizer) {
       count_ = thread_count;
       model_.eval();
    }
@@ -156,54 +166,19 @@ class TorchScriptSequenceClassifier: public ISequenceClassifier {
 
    }
 
-   torch::Tensor classify(string sequence_0, string sequence_1) {
-      acquire();
-
-      auto handler_time_begin = chrono::steady_clock::now();
-
-      chrono::steady_clock::time_point begin = chrono::steady_clock::now();
-      auto kwargs = tokenizer_.encode_plus(sequence_0, sequence_1);
-      chrono::steady_clock::time_point end = chrono::steady_clock::now();
-
-      log_metric("TokenizationTime", chrono::duration_cast<chrono::milliseconds>(end - begin).count());
-
-      if (torch::cuda::is_available()) {
-         torch::Device device = torch::kCUDA;
-
-         kwargs["input_ids"] = kwargs["input_ids"].toTensor().to(device);
-         kwargs["token_type_ids"] = kwargs["token_type_ids"].toTensor().to(device);
-         kwargs["attention_mask"] = kwargs["attention_mask"].toTensor().to(device);
-      }
-
-      begin = chrono::steady_clock::now();
-      auto ret = model_.forward({}, kwargs);
-      end = chrono::steady_clock::now();
-
-      log_metric("ModelTime", chrono::duration_cast<chrono::milliseconds>(end - begin).count());
-
-      auto ret2 = ret.toIValue().toTuple()->elements()[0];
-
-      auto res = torch::softmax(ret2.toTensor(),1);
-
-      auto handler_time_end = chrono::steady_clock::now();
-
-      log_metric("HandlerTime", chrono::duration_cast<chrono::milliseconds>(handler_time_end - handler_time_begin).count());
-
-      release();
-
-      return res;
+   c10::IValue apply_model(std::unordered_map<std::string, c10::IValue> kwargs){
+      auto ret = model_.forward({}, kwargs).toIValue().toTuple()->elements()[0];
+      return ret;
    }
 
    protected:
 
    torch::jit::script::Module model_;
-   BertTokenizer &tokenizer_;
-
 };
 
 void handle_request(
    http_request request,
-   unique_ptr<ISequenceClassifier> &classifier) {
+   unique_ptr<SequenceClassifier> &classifier) {
 
    status_code code = status_codes::OK;
    utility::string_t answer;
@@ -265,20 +240,26 @@ int main(const int argc, const char* const argv[]) {
 
    BertTokenizer tokenizer("vocab.txt");
 
-   unique_ptr<ISequenceClassifier> classifier;
+   unique_ptr<SequenceClassifier> classifier;
 
 
    const size_t thread_count = std::stoul(argv[3]);
 
    if(argc > 4) {
       const std::string python_path = argv[4];
-      classifier = unique_ptr<ISequenceClassifier>(new TorchPackageSequenceClassifier(model_to_serve, thread_count, python_path, tokenizer));
+      classifier = unique_ptr<SequenceClassifier>(new TorchPackageSequenceClassifier(model_to_serve, thread_count, python_path, tokenizer));
    }else
    {
-      classifier = unique_ptr<ISequenceClassifier>(new TorchScriptSequenceClassifier(model_to_serve, tokenizer, thread_count));
+      classifier = unique_ptr<SequenceClassifier>(new TorchScriptSequenceClassifier(model_to_serve, tokenizer, thread_count));
    }
 
-   std::cout << "Serving " << model_to_serve << " at " << uri << " with " << thread_count << " threads." << std::endl;
+   at::set_num_interop_threads(1);
+   at::set_num_threads(1);
+
+   cout << "Serving " << model_to_serve << " at " << uri << " with " << thread_count << " threads." << std::endl;
+   cout << "Inter-op threads:" << at::get_num_interop_threads() << endl;
+   cout << "Intra-op threads:" << at::get_num_threads() << endl; 
+
    cout << "Press Ctrl+C to terminate." << std::endl;
 
    // HTTP Server
