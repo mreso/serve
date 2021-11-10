@@ -81,3 +81,11 @@ find_library(
 target_link_libraries(cpp_backend_poc_eager PRIVATE bert_tokenizer ${TORCH_DEPLOY} ${GLOG_LIBRARIES})
 
 target_link_libraries(test_tokenizer PRIVATE bert_tokenizer ${TORCH_DEPLOY})
+
+
+add_executable(benchmark threading_benchmark.cpp)
+target_compile_features(benchmark PRIVATE cxx_std_14)
+
+find_package(Torch REQUIRED)
+target_include_directories(benchmark PRIVATE ${TORCH_INCLUDE_DIRS})
+target_link_libraries(benchmark PRIVATE ${TORCH_LIBRARIES} ${TORCH_DEPLOY})

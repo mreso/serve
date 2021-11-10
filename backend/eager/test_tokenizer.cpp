@@ -39,6 +39,9 @@ int main(const int argc, const char* const argv[]) {
   // Torch script
   auto traced = torch::jit::load(torch_script_model);
 
+  at::set_num_interop_threads(1);
+  at::set_num_threads(1);
+
   cout << "Inter-op threads:" << at::get_num_interop_threads() << endl;
   cout << "Intra-op threads:" << at::get_num_threads() << endl; 
 
