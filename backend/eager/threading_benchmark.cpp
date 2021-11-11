@@ -20,6 +20,16 @@ const size_t WARM_UPS = 10;
 
 typedef  unordered_map<string, c10::IValue> KWARG;
 
+void move_to_cuda_if_available(KWARG &kwargs) {
+
+    if (torch::cuda::is_available()) {
+         torch::Device device = torch::kCUDA;
+
+         for(auto &p : kwargs)
+            p.second = p.second.toTensor().to(device);
+    }
+}
+
 class Worker {
     public:
     Worker(size_t id, size_t& queue, mutex& mtx)
@@ -30,6 +40,8 @@ class Worker {
             1240,  2332,   102}).unsqueeze(0);
         kwargs_["token_type_ids"] = torch::tensor(std::vector<int64_t>{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1}).unsqueeze(0);
         kwargs_["attention_mask"] = torch::tensor(std::vector<int64_t>{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}).unsqueeze(0);
+
+        move_to_cuda_if_available(kwargs_);
 
     }
 
@@ -66,15 +78,26 @@ class TorchScriptWorker: public Worker {
     public:
     TorchScriptWorker(size_t id, size_t& queue, mutex& mtx, torch::jit::Module &model)
     :model_(model), Worker(id, queue, mtx) {
+        // std::unordered_map<std::string, c10::IValue> local_copy;
+
+        local_copy["input_ids"] = torch::tensor(std::vector<int64_t>{
+            101,  1109,  1419, 20164, 10932,  2271,  7954,  1110,  1359,  1107,
+            1203,  1365,  1392,   102,  7302,  1116,  1132,  2108,  2213,  1111,
+            1240,  2332,   102}).unsqueeze(0);
+        local_copy["token_type_ids"] = torch::tensor(std::vector<int64_t>{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1}).unsqueeze(0);
+        local_copy["attention_mask"] = torch::tensor(std::vector<int64_t>{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}).unsqueeze(0);
+        move_to_cuda_if_available(local_copy);
 
     }
     protected:
 
     void process_payload() {
-        auto ret = model_.forward({}, kwargs_).toIValue().toTuple()->elements()[0];
+        // auto ret = model_.forward({}, kwargs_).toIValue().toTuple()->elements()[0];
+        auto ret = model_.forward({}, local_copy).toIValue().toTuple()->elements()[0];
     }
 
     torch::jit::Module &model_;
+    KWARG local_copy;
 };
 
 class TorchDeployWorker: public Worker {
@@ -98,6 +121,7 @@ class TorchDeployWorker: public Worker {
             1240,  2332,   102}).unsqueeze(0);
         local_copy["token_type_ids"] = torch::tensor(std::vector<int64_t>{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1}).unsqueeze(0);
         local_copy["attention_mask"] = torch::tensor(std::vector<int64_t>{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}).unsqueeze(0);
+        move_to_cuda_if_available(local_copy);
             
         auto ret = model_.callKwargs({}, local_copy).toIValue().toTuple()->elements()[0];
     }
@@ -117,8 +141,8 @@ int main(const int argc, const char* const argv[]) {
     const size_t THREAD_NUM = std::stoul(argv[2]);
     const string type = string(argv[3]) == "ts" ? "ts" : "td";
 
-    at::set_num_interop_threads(1);
-    at::set_num_threads(1); 
+    // at::set_num_interop_threads(1);
+    // at::set_num_threads(1); 
 
     cout << "Inter-op threads:" << at::get_num_interop_threads() << endl;
     cout << "Intra-op threads:" << at::get_num_threads() << endl; 
@@ -133,8 +157,10 @@ int main(const int argc, const char* const argv[]) {
     kwargs["token_type_ids"] = torch::tensor(std::vector<int64_t>{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1}).unsqueeze(0);
     kwargs["attention_mask"] = torch::tensor(std::vector<int64_t>{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}).unsqueeze(0);
 
+    move_to_cuda_if_available(kwargs);
+
     // Torch script
-    torch::jit::Module traced;
+    vector<torch::jit::Module> traced;
 
     //TorchDeploy
     unique_ptr<torch::deploy::InterpreterManager> manager;
@@ -150,23 +176,26 @@ int main(const int argc, const char* const argv[]) {
     vector<thread> worker_threads;
 
     if(type == "ts") {
-        traced = torch::jit::load("../models/bert_model_only_traced.pt");
-        traced.eval();
 
-        auto ret = traced.forward({}, kwargs).toIValue().toTuple()->elements()[0];
-        float paraphrased_percent = 100.0 * torch::softmax(ret.toTensor(),1)[0][1].item<float>();
-        cout << round(paraphrased_percent) << "% paraphrase" << endl;
+        for(int i=0; i<THREAD_NUM; ++i) {
+            traced.push_back(torch::jit::load("../models/bert_model_only_traced.pt"));
+            traced.back().eval();
 
-        // Warm-up
-        for(size_t i=0; i<WARM_UPS; ++i){
-            auto ret = traced.forward({}, kwargs).toIValue().toTuple()->elements()[0];
+            auto ret = traced.back().forward({}, kwargs).toIValue().toTuple()->elements()[0];
+            float paraphrased_percent = 100.0 * torch::softmax(ret.toTensor(),1)[0][1].item<float>();
+            cout << round(paraphrased_percent) << "% paraphrase" << endl;
+
+            // Warm-up
+            for(size_t i=0; i<WARM_UPS; ++i){
+                auto ret = traced.back().forward({}, kwargs).toIValue().toTuple()->elements()[0];
+            }
         }
 
         begin = chrono::steady_clock::now();
         for(int i=0; i<THREAD_NUM; ++i)
-            worker_threads.emplace_back(&Worker::do_work, TorchScriptWorker(i, queue, mtx, traced));
+            worker_threads.emplace_back(&Worker::do_work, TorchScriptWorker(i, queue, mtx, traced[i]));
     }else {
-        manager.reset(new torch::deploy::InterpreterManager(2*THREAD_NUM, "../transformers_venv/lib/python3.8/site-packages/"));
+        manager.reset(new torch::deploy::InterpreterManager(THREAD_NUM, "../transformers_venv/lib/python3.8/site-packages/"));
         package = make_unique<torch::deploy::Package>(manager->loadPackage("../models/bert_model_only.pt"));
         deployed = package->loadPickle("model", "model.pkl");
 
