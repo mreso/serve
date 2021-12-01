@@ -48,7 +48,7 @@ int main(const int argc, const char* const argv[]) {
   traced.eval();
 
   auto run_traced = [&tokenizer, &traced](string seq_1, string seq_2) {
-    auto kwargs = tokenizer.encode_plus(seq_1, seq_2);
+    auto kwargs = tokenizer.encode_plus(seq_1, seq_2, 128);
 
     torch::Device device = torch::kCPU;
     if (torch::cuda::is_available()) {
@@ -84,7 +84,7 @@ int main(const int argc, const char* const argv[]) {
   torch::deploy::ReplicatedObj model = package.loadPickle("model", "model.pkl");
 
   auto run_model = [&tokenizer, &model](string seq_1, string seq_2) {
-    auto kwargs = tokenizer.encode_plus(seq_1, seq_2);
+    auto kwargs = tokenizer.encode_plus(seq_1, seq_2, 128);
 
     torch::Device device = torch::kCPU;
     if (torch::cuda::is_available()) {

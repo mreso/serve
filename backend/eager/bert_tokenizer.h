@@ -12,7 +12,7 @@ class BertTokenizer
 
   ~BertTokenizer();
 
-  std::unordered_map<std::string, c10::IValue> encode_plus(std::string sequence_1, std::string sequence_2);
+  std::unordered_map<std::string, c10::IValue> encode_plus(std::string sequence_1, std::string sequence_2, size_t sequence_length);
 
   protected:
   radish::BertTokenizer tokenizer_;
