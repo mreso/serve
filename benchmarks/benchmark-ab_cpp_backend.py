@@ -464,7 +464,7 @@ class CppBackend(SystemUnderTest):
         self.prepare_common_dependency()
         click.secho("*Starting local instance...", fg='green')
         # self._handle = execute(f"../backend/eager/build/cpp_backend_poc_eager {execution_params['inference_url']}"
-        parameters = f"{execution_params['inference_url']} {execution_params['url']} {execution_params['workers']}"
+        parameters = f"{execution_params['inference_url']} {execution_params['batch_size']} {execution_params['batch_delay']} {execution_params['url']}"
         parameters += f" {execution_params['backend_parameters']}" if execution_params['backend_parameters'] else ""
         self._handle = execute(f"GLOG_logtostderr=1  ../backend/eager/build/cpp_backend_poc_eager {parameters}"
                 f" > {TMP_DIR}/benchmark/logs/model_metrics.log 2>&1", preexec_fn=os.setsid)
