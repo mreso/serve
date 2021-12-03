@@ -14,6 +14,7 @@
 #include <torch/types.h>
 #include <torch/csrc/deploy/deploy.h>
 #include <c10/util/Optional.h>
+#include <c10/core/Device.h>
 
 using namespace web::http::experimental::listener;
 using namespace web::http;
@@ -37,10 +38,7 @@ using namespace std;
 
 typedef web::json::value JsonValue;
 
-#define TRACE(msg)            cout << msg
-#define TRACE_ACTION(a, k, v) cout << a << " (" << k << ", " << v << ")\n"
-
-map<utility::string_t, utility::string_t> dictionary;
+typedef unordered_map<string, c10::IValue> KWARG;
 
 namespace {
 
@@ -63,6 +61,16 @@ void log_metric(string name, float value, string unit="ms") {
    LOG(INFO) << name << "." << unit << ":" << value << "|" << endl;
 }
 
+
+void move_to_cuda(KWARG &kwargs, c10::DeviceIndex idx) {
+    if (torch::cuda::is_available()) {
+         torch::Device device(torch::kCUDA, idx);
+
+         for(auto &p : kwargs)
+            p.second = p.second.toTensor().to(device);
+    }
+}
+
 class SequenceClassifier {
    public:
    SequenceClassifier(){
@@ -74,10 +82,10 @@ class SequenceClassifier {
 
 class TorchPackageSequenceClassifier: public SequenceClassifier {
    public:
-   TorchPackageSequenceClassifier(torch::deploy::InterpreterManager& manager, std::string model_to_serve)
-   : manager_(manager) {
-      torch::deploy::Package package = manager_.loadPackage(model_to_serve);
-      model_handler_ = package.loadPickle("model", "model.pkl");
+   TorchPackageSequenceClassifier(torch::deploy::ReplicatedObj model_handler, c10::optional<c10::DeviceIndex> device_idx)
+   : model_handler_(std::move(model_handler)), device_idx_(device_idx) {
+      if(device_idx_.has_value())
+         model_handler_.acquireSession().self.attr("to")({"cuda:" + to_string(*device_idx_)});
    }
 
    ~TorchPackageSequenceClassifier() {
@@ -86,19 +94,23 @@ class TorchPackageSequenceClassifier: public SequenceClassifier {
    protected:
 
    c10::IValue apply_model(std::unordered_map<std::string, c10::IValue> kwargs){
+      if(device_idx_.has_value())
+         move_to_cuda(kwargs, *device_idx_);
       auto ret = model_handler_.callKwargs({}, kwargs).toIValue().toTuple()->elements()[0];
       return ret;
    }
 
-   torch::deploy::InterpreterManager& manager_;
+   c10::optional<c10::DeviceIndex> device_idx_;
    torch::deploy::ReplicatedObj model_handler_;
 };
 
 class TorchScriptSequenceClassifier: public SequenceClassifier {
    public:
-   TorchScriptSequenceClassifier(std::string model_to_serve)
-   : model_(torch::jit::load(model_to_serve)) {
+   TorchScriptSequenceClassifier(torch::jit::script::Module model, c10::optional<c10::DeviceIndex> device_idx)
+   : model_(std::move(model)), device_idx_(device_idx) {
       model_.eval();
+      if(device_idx_.has_value() && torch::cuda::is_available())
+         model_.to(at::Device(torch::kCUDA, *device_idx_));
    }
 
    ~TorchScriptSequenceClassifier() {
@@ -106,12 +118,15 @@ class TorchScriptSequenceClassifier: public SequenceClassifier {
    }
 
    c10::IValue apply_model(std::unordered_map<std::string, c10::IValue> kwargs){
+      if(device_idx_.has_value())
+         move_to_cuda(kwargs, *device_idx_);
       auto ret = model_.forward({}, kwargs).toIValue().toTuple()->elements()[0];
       return ret;
    }
 
    protected:
 
+   c10::optional<c10::DeviceIndex> device_idx_;
    torch::jit::script::Module model_;
 };
 
@@ -403,18 +418,22 @@ int main(const int argc, const char* const argv[]) {
    vector<thread> worker_threads;
 
    c10::optional<torch::deploy::InterpreterManager> manager;
+   c10::optional<torch::deploy::Package> package;
 
    for(int i=0; i<4; ++i) {
       unique_ptr<SequenceClassifier> classifier;
+      c10::optional<c10::DeviceIndex> device_idx(torch::cuda::is_available() ? c10::optional<c10::DeviceIndex>(i) : c10::nullopt);
       if(argc > 5) {
          if(!manager.has_value()) {
             const std::string python_path = argv[5];
             manager.emplace(4, python_path);
+            package.emplace(manager->loadPackage(model_to_serve));
          }
-         classifier = unique_ptr<SequenceClassifier>(new TorchPackageSequenceClassifier(*manager, model_to_serve));
+         
+         classifier = unique_ptr<SequenceClassifier>(new TorchPackageSequenceClassifier(std::move(package->loadPickle("model", "model.pkl")), device_idx));
       }else
       {
-         classifier = unique_ptr<SequenceClassifier>(new TorchScriptSequenceClassifier(model_to_serve));
+         classifier = unique_ptr<SequenceClassifier>(new TorchScriptSequenceClassifier(std::move(torch::jit::load(model_to_serve)), device_idx));
       }
 
       worker_threads.emplace_back(&WorkerThead::do_work, WorkerThead(std::move(classifier), tokenizer, sequence_length, batch_queue, terminate));
