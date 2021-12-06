@@ -5,7 +5,10 @@ using namespace std;
 
 BertTokenizer::BertTokenizer(string vocab_file)
 {
-    assert(tokenizer_.Init("vocab.txt"));
+    bool success = tokenizer_.Init("vocab.txt");
+
+    if(!success)
+        throw("Tokenizer initialization failed!");
 }
 
 BertTokenizer::~BertTokenizer()
