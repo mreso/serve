@@ -111,6 +111,7 @@ def benchmark(test_plan, url, gpus, exec_env, concurrency, requests, batch_size,
         system_under_test.start()
 
         system_under_test.check_health()
+        warm_up()
         run_benchmark()
         generate_report()
 
@@ -128,6 +129,13 @@ def run_benchmark():
 
     execute(ab_cmd, wait=True)
 
+def warm_up():
+
+    click.secho("\n\nExecuting warm-up ...", fg='green')
+    ab_cmd = f"ab -c {execution_params['concurrency']}  -n {int(execution_params['requests']/10)} -p {TMP_DIR}/benchmark/input -T " \
+             f"{execution_params['content_type']} {execution_params['inference_url']}/{execution_params['inference_model_url']} > {result_file}"
+    
+    execute(ab_cmd, wait=True)
 
 def register_model():
     click.secho("*Registering model...", fg='green')
@@ -490,7 +498,7 @@ class CppBackend(SystemUnderTest):
         shutil.copyfile(input, os.path.join(TMP_DIR, 'benchmark/input'))
 
     def _check_torchserve_health(self):
-        attempts = 3
+        attempts = 10
         retry = 0
         click.secho("*Testing system health...", fg='green')
         click.secho(TMP_DIR)

@@ -3,6 +3,7 @@
 #include <torch/types.h>
 #include <torch/script.h>
 #include <torch/csrc/deploy/deploy.h>
+#include <torch/csrc/deploy/path_environment.h>
 
 // C++ STD
 #include <chrono>
@@ -163,8 +164,9 @@ int main(const int argc, const char* const argv[]) {
     vector<torch::jit::Module> traced;
 
     //TorchDeploy
-    unique_ptr<torch::deploy::InterpreterManager> manager;
-    unique_ptr<torch::deploy::Package> package;
+    shared_ptr<torch::deploy::InterpreterManager> manager;
+    shared_ptr<torch::deploy::Package> package;
+    shared_ptr<torch::deploy::Environment> env;
     torch::deploy::ReplicatedObj deployed;
 
     chrono::steady_clock::time_point begin;
@@ -195,8 +197,9 @@ int main(const int argc, const char* const argv[]) {
         for(int i=0; i<THREAD_NUM; ++i)
             worker_threads.emplace_back(&Worker::do_work, TorchScriptWorker(i, queue, mtx, traced[i]));
     }else {
-        manager.reset(new torch::deploy::InterpreterManager(THREAD_NUM, "../transformers_venv/lib/python3.8/site-packages/"));
-        package = make_unique<torch::deploy::Package>(manager->loadPackage("../models/bert_model_only.pt"));
+        env = make_shared<torch::deploy::PathEnvironment>("../transformers_venv/lib/python3.8/site-packages/");
+        manager.reset(new torch::deploy::InterpreterManager(THREAD_NUM, env));
+        package = make_shared<torch::deploy::Package>(manager->loadPackage("../models/bert_model_only.pt"));
         deployed = package->loadPickle("model", "model.pkl");
 
         auto ret = deployed.callKwargs({}, kwargs).toIValue().toTuple()->elements()[0];

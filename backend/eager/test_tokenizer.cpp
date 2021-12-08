@@ -5,6 +5,7 @@
 #include <torch/torch.h>
 #include <torch/types.h>
 #include <torch/csrc/deploy/deploy.h>
+#include <torch/csrc/deploy/path_environment.h>
 
 // C++ STD
 #include <chrono>
@@ -79,9 +80,10 @@ int main(const int argc, const char* const argv[]) {
 
 
   // Torch Deploy
-  torch::deploy::InterpreterManager manager(1, python_path);
-  torch::deploy::Package package = manager.loadPackage(torch_package_model);
-  torch::deploy::ReplicatedObj model = package.loadPickle("model", "model.pkl");
+  shared_ptr<torch::deploy::Environment> env = make_shared<torch::deploy::PathEnvironment>(python_path);
+  shared_ptr<torch::deploy::InterpreterManager> manager = make_shared<torch::deploy::InterpreterManager>(1, env);
+  shared_ptr<torch::deploy::Package> package = make_shared<torch::deploy::Package>(manager->loadPackage(torch_package_model));
+  torch::deploy::ReplicatedObj model = package->loadPickle("model", "model.pkl");
 
   auto run_model = [&tokenizer, &model](string seq_1, string seq_2) {
     auto kwargs = tokenizer.encode_plus(seq_1, seq_2, 128);
