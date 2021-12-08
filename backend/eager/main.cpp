@@ -100,6 +100,7 @@ class TorchPackageSequenceClassifier: public SequenceClassifier {
          model_handler_.acquireSession().self.attr("to")({device});
          cout << "Resulting device: " << model_handler_.acquireSession().self.attr("device").toIValue() << endl;
       }
+      model_handler_.acquireSession().self.attr("eval")(vector<c10::IValue>());
    }
 
    ~TorchPackageSequenceClassifier() {
