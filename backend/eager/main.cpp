@@ -437,8 +437,7 @@ int main(const int argc, const char* const argv[]) {
 
    for(int i=0; i<4; ++i) {
       unique_ptr<SequenceClassifier> classifier;
-      // c10::optional<c10::DeviceIndex> device_idx(torch::cuda::is_available() ? c10::optional<c10::DeviceIndex>(i) : c10::nullopt);
-      c10::optional<c10::DeviceIndex> device_idx(i);
+      c10::optional<c10::DeviceIndex> device_idx(torch::cuda::is_available() ? c10::optional<c10::DeviceIndex>(i) : c10::nullopt);
       if(argc > 5) {
          if(manager == nullptr) {
             const std::string python_path = argv[5];
