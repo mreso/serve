@@ -57,21 +57,25 @@ int main(const int argc, const char* const argv[]) {
       device = torch::kCUDA;
     }
 
-    kwargs["input_ids"] = kwargs["input_ids"].toTensor().to(device);
-    kwargs["token_type_ids"] = kwargs["token_type_ids"].toTensor().to(device);
-    kwargs["attention_mask"] = kwargs["attention_mask"].toTensor().to(device);
+    unordered_map<string, c10::IValue>slow_kwargs;
+    for(auto& p : kwargs)
+      slow_kwargs[p.key()] = p.value().to(device);
 
-    auto ret = traced.forward({}, kwargs).toIValue().toTuple()->elements()[0];
+    // kwargs.insert_or_assign("input_ids", kwargs.at("input_ids").to(device));
+    // kwargs.insert_or_assign("token_type_ids", kwargs.at("token_type_ids").to(device));
+    // kwargs.insert_or_assign("attention_mask", kwargs.at("attention_mask").to(device));
+
+    auto ret = traced.forward(std::vector<c10::IValue>(), slow_kwargs).toIValue().toTuple()->elements()[0];
     float paraphrased_percent = 100.0 * torch::softmax(ret.toTensor(),1)[0][1].item<float>();
     cout << round(paraphrased_percent) << "% paraphrase" << endl;
 
     // WARM UP
     for(size_t i=0; i<10; ++i)
-      auto ret = traced.forward({}, kwargs).toIValue().toTuple()->elements()[0];
+      auto ret = traced.forward(std::vector<c10::IValue>(), slow_kwargs).toIValue().toTuple()->elements()[0];
 
     chrono::steady_clock::time_point begin = chrono::steady_clock::now();
     for(size_t i=0; i<NUM_ITER; ++i)
-      auto ret = traced.forward({}, kwargs).toIValue().toTuple()->elements()[0];
+      auto ret = traced.forward(std::vector<c10::IValue>(), slow_kwargs).toIValue().toTuple()->elements()[0];
     chrono::steady_clock::time_point end = chrono::steady_clock::now();
     cout << "ModelTime (ms): " << chrono::duration_cast<chrono::milliseconds>(end - begin).count()/float(NUM_ITER) << endl;
   };
@@ -94,21 +98,26 @@ int main(const int argc, const char* const argv[]) {
       device = torch::kCUDA;
     }
 
-    kwargs["input_ids"] = kwargs["input_ids"].toTensor().to(device);
-    kwargs["token_type_ids"] = kwargs["token_type_ids"].toTensor().to(device);
-    kwargs["attention_mask"] = kwargs["attention_mask"].toTensor().to(device);
+    for( auto& p : kwargs)
+      kwargs.insert_or_assign(p.key(), p.value().to(device));
 
-    auto ret = model.callKwargs({}, kwargs).toIValue().toTuple()->elements()[0];
+    // kwargs["input_ids"] = kwargs["input_ids"].toTensor().to(device);
+    // kwargs["token_type_ids"] = kwargs["token_type_ids"].toTensor().to(device);
+    // kwargs["attention_mask"] = kwargs["attention_mask"].toTensor().to(device);
+
+    auto I = model.acquireSession();
+
+    auto ret = I.self.attr("__call__")({kwargs}).toIValue().toTuple()->elements()[0];
     float paraphrased_percent = 100.0 * torch::softmax(ret.toTensor(),1)[0][1].item<float>();
     cout << round(paraphrased_percent) << "% paraphrase" << endl;
     
     // WARM UP
     for(size_t i=0; i<10; ++i)
-      auto ret = model.callKwargs({}, kwargs).toIValue().toTuple()->elements()[0];
+      auto ret = I.self.attr("__call__")({kwargs}).toIValue().toTuple()->elements()[0];
 
     chrono::steady_clock::time_point begin = chrono::steady_clock::now();
     for(size_t i=0; i<NUM_ITER; ++i)
-      auto ret = model.callKwargs({}, kwargs).toIValue().toTuple()->elements()[0];
+      auto ret = I.self.attr("__call__")({kwargs}).toIValue().toTuple()->elements()[0];
     chrono::steady_clock::time_point end = chrono::steady_clock::now();
     cout << "ModelTime (ms): " << chrono::duration_cast<chrono::milliseconds>(end - begin).count()/float(NUM_ITER) << endl;
   };

@@ -16,6 +16,7 @@
 #include <torch/csrc/deploy/path_environment.h>
 #include <c10/util/Optional.h>
 #include <c10/core/Device.h>
+#include <c10/cuda/CUDAGuard.h>
 
 using namespace web::http::experimental::listener;
 using namespace web::http;
@@ -255,12 +256,31 @@ protected:
 
 struct WorkerThead {
 
-   WorkerThead(unique_ptr<SequenceClassifier> classifier, BertTokenizer& tokenizer, size_t sequence_length, BatchQueue& batch_queue, atomic_bool &terminate)
-   :classifier_(std::move(classifier)), tokenizer_(tokenizer), sequence_length_(sequence_length), batch_queue_(batch_queue), terminate_(terminate) {
+   WorkerThead(torch::deploy::InterpreterManager& manager,
+      torch::deploy::ReplicatedObj model, BertTokenizer& tokenizer, size_t sequence_length, BatchQueue& batch_queue, atomic_bool &terminate)
+   // WorkerThead(unique_ptr<SequenceClassifier> classifier, BertTokenizer& tokenizer, size_t sequence_length, BatchQueue& batch_queue, atomic_bool &terminate)
+   // :classifier_(std::move(classifier)), 
+   :manager_(manager),
+      model_(std::move(model)),tokenizer_(tokenizer), sequence_length_(sequence_length), batch_queue_(batch_queue), terminate_(terminate) {
+
+      
+      for(int i=0; i<1; i++) {
+         processThreads_.emplace_back([this, i]{do_work(i);});
+      }
+         
 
    }
 
-   void do_work() {
+   ~WorkerThead() {
+      terminate_ = true;
+      for(auto& t : processThreads_)
+         t.join();
+   }
+
+   void do_work(int idx) {
+      auto model = model_.acquireSession(&manager_.allInstances().at(idx));
+
+      c10::cuda::CUDAGuard guard(idx);
 
       while(!terminate_) {
          unique_lock<mutex> lock(batch_queue_.m_);
@@ -278,7 +298,57 @@ struct WorkerThead {
             r.log_queue_time();
 
          auto begin = chrono::steady_clock::now();
-         process_batch(requests);
+
+         size_t sample_num = requests.size();
+
+         if (sample_num == 0)
+            return;
+
+         // cout << "Processing batch of size " << to_string(sample_num) << "\n";
+
+         vector<torch::Tensor> input_ids, token_type_ids, attention_mask;
+
+         for(int i=0; i<sample_num; ++i) {
+
+            string sequence_0 = requests[i].sequence_0_;
+            string sequence_1 = requests[i].sequence_1_;
+
+            auto kwargs = tokenizer_.encode_plus(sequence_0, sequence_1, sequence_length_);
+            input_ids.push_back(kwargs.at("input_ids").to("cuda"));
+            token_type_ids.push_back(kwargs.at("token_type_ids").to("cuda"));
+            attention_mask.push_back(kwargs.at("attention_mask").to("cuda"));
+
+            // if (torch::cuda::is_available()) {
+            //    std::cout << "Moving batch to gpu" << endl;
+            //    at::Device device(torch::kCUDA, *(classifier_->get_device_idx()));
+            //    input_ids.back() = input_ids.back().to(device);
+            //    token_type_ids.back() = token_type_ids.back().to(device);
+            //    attention_mask.back() = attention_mask.back().to(device);
+            // }
+         }
+
+         unordered_map<string, c10::IValue> batch;
+         
+         batch["input_ids"] = torch::stack(input_ids);
+         batch["token_type_ids"] = torch::stack(token_type_ids);
+         batch["attention_mask"] = torch::stack(attention_mask);
+         // // chrono::steady_clock::time_point end = chrono::steady_clock::now();
+
+         // // log_metric("TokenizationTime", chrono::duration_cast<chrono::milliseconds>(end - begin).count());
+
+         // auto ret = classifier_->apply_model(batch);
+         auto ret = model.self.attr("__call__").callKwargs(std::vector<c10::IValue>(), move(batch));
+         
+         auto res = torch::softmax(ret.toIValue().toTuple()->elements()[0].toTensor(),1);
+
+         log_metric("HandlerTime", chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - begin).count());
+         
+         for(int i=0; i<sample_num; ++i) {
+            float paraphrased_percent = 100.0 * res[i][1].item<float>();
+            string answer = to_string((int)round(paraphrased_percent)) + "% paraphrase";
+
+            requests[i].reply(status_codes::OK, answer);
+         }
          auto duration = chrono::steady_clock::now() - begin;
          log_metric("PredictionTime", chrono::duration_cast<chrono::milliseconds>(duration).count());
          log_metric("WorkerThreadTime", chrono::duration_cast<chrono::milliseconds>((chrono::steady_clock::now() - begin) - duration).count());
@@ -288,65 +358,69 @@ struct WorkerThead {
 
 
    void process_batch(vector<Request> requests) {
-      auto begin = chrono::steady_clock::now();
+      // auto begin = chrono::steady_clock::now();
 
-      size_t sample_num = requests.size();
+      // size_t sample_num = requests.size();
 
-      if (sample_num == 0)
-         return;
+      // if (sample_num == 0)
+      //    return;
 
-      // cout << "Processing batch of size " << to_string(sample_num) << "\n";
+      // // cout << "Processing batch of size " << to_string(sample_num) << "\n";
 
-      vector<torch::Tensor> input_ids, token_type_ids, attention_mask;
+      // vector<torch::Tensor> input_ids, token_type_ids, attention_mask;
 
-      for(int i=0; i<sample_num; ++i) {
+      // for(int i=0; i<sample_num; ++i) {
 
-         string sequence_0 = requests[i].sequence_0_;
-         string sequence_1 = requests[i].sequence_1_;
+      //    string sequence_0 = requests[i].sequence_0_;
+      //    string sequence_1 = requests[i].sequence_1_;
 
-         auto kwargs = tokenizer_.encode_plus(sequence_0, sequence_1, sequence_length_);
-         input_ids.push_back(kwargs["input_ids"].toTensor());
-         token_type_ids.push_back(kwargs["token_type_ids"].toTensor());
-         attention_mask.push_back(kwargs["attention_mask"].toTensor());
+      //    auto kwargs = tokenizer_.encode_plus(sequence_0, sequence_1, sequence_length_);
+      //    input_ids.push_back(kwargs["input_ids"].toTensor());
+      //    token_type_ids.push_back(kwargs["token_type_ids"].toTensor());
+      //    attention_mask.push_back(kwargs["attention_mask"].toTensor());
 
-         if (torch::cuda::is_available()) {
-            cout << "Moving batch to gpu" << endl;
-            at::Device device(torch::kCUDA, *(classifier_->get_device_idx()));
-            input_ids.back() = input_ids.back().to(device);
-            token_type_ids.back() = token_type_ids.back().to(device);
-            attention_mask.back() = attention_mask.back().to(device);
-         }
-      }
+      //    // if (torch::cuda::is_available()) {
+      //    //    std::cout << "Moving batch to gpu" << endl;
+      //    //    at::Device device(torch::kCUDA, *(classifier_->get_device_idx()));
+      //    //    input_ids.back() = input_ids.back().to(device);
+      //    //    token_type_ids.back() = token_type_ids.back().to(device);
+      //    //    attention_mask.back() = attention_mask.back().to(device);
+      //    // }
+      // }
 
-      unordered_map<string, c10::IValue> batch;
+      // unordered_map<string, c10::IValue> batch;
       
-      batch["input_ids"] = torch::stack(input_ids);
-      batch["token_type_ids"] = torch::stack(token_type_ids);
-      batch["attention_mask"] = torch::stack(attention_mask);
-      // chrono::steady_clock::time_point end = chrono::steady_clock::now();
+      // batch["input_ids"] = torch::stack(input_ids);
+      // batch["token_type_ids"] = torch::stack(token_type_ids);
+      // batch["attention_mask"] = torch::stack(attention_mask);
+      // // // chrono::steady_clock::time_point end = chrono::steady_clock::now();
 
-      // log_metric("TokenizationTime", chrono::duration_cast<chrono::milliseconds>(end - begin).count());
+      // // // log_metric("TokenizationTime", chrono::duration_cast<chrono::milliseconds>(end - begin).count());
 
-      auto ret = classifier_->apply_model(batch);
+      // // auto ret = classifier_->apply_model(batch);
+      // auto ret = classifier_->apply_model(batch);
 
-      auto res = torch::softmax(ret.toTensor(),1);
+      // auto res = torch::softmax(ret.toTensor(),1);
 
-      log_metric("HandlerTime", chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - begin).count());
+      // log_metric("HandlerTime", chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - begin).count());
       
-      for(int i=0; i<sample_num; ++i) {
-         float paraphrased_percent = 100.0 * res[i][1].item<float>();
-         string answer = to_string((int)round(paraphrased_percent)) + "% paraphrase";
+      // for(int i=0; i<sample_num; ++i) {
+      //    float paraphrased_percent = 100.0 * res[i][1].item<float>();
+      //    string answer = to_string((int)round(paraphrased_percent)) + "% paraphrase";
 
-         requests[i].reply(status_codes::OK, answer);
-      }
+      //    requests[i].reply(status_codes::OK, answer);
+      // }
    }
 
-   unique_ptr<SequenceClassifier> classifier_;
+   // unique_ptr<SequenceClassifier> classifier_;
    BertTokenizer& tokenizer_;
 
    size_t sequence_length_;
    BatchQueue &batch_queue_;
    atomic_bool &terminate_;
+   std::vector<std::thread> processThreads_;
+    torch::deploy::InterpreterManager& manager_;
+  torch::deploy::ReplicatedObj model_;
 };
 
 void handle_request(
@@ -431,28 +505,36 @@ int main(const int argc, const char* const argv[]) {
 
    vector<thread> worker_threads;
 
-   std::shared_ptr<torch::deploy::InterpreterManager> manager;
-   std::shared_ptr<torch::deploy::Package> package;
+   // std::shared_ptr<torch::deploy::InterpreterManager> manager;
+   // std::shared_ptr<torch::deploy::Package> package;
+   // std::shared_ptr<torch::deploy::Environment> env;
+
+   // for(int i=0; i<1; ++i) {
+   //    unique_ptr<SequenceClassifier> classifier;
+   //    c10::optional<c10::DeviceIndex> device_idx(torch::cuda::is_available() ? c10::optional<c10::DeviceIndex>(i) : c10::nullopt);
+   //    if(argc > 5) {
+   //       if(manager == nullptr) {
+   //          const std::string python_path = argv[5];
+   //          env = std::make_shared<torch::deploy::PathEnvironment>(python_path);
+   //          manager = std::make_shared<torch::deploy::InterpreterManager>(4, env);
+   //          package = std::make_shared<torch::deploy::Package>(manager->loadPackage(model_to_serve));
+   //       }
+   //       classifier = unique_ptr<SequenceClassifier>(new TorchPackageSequenceClassifier(std::move(package->loadPickle("model", "model.pkl")), device_idx));
+   //    }else
+   //    {
+   //       classifier = unique_ptr<SequenceClassifier>(new TorchScriptSequenceClassifier(std::move(torch::jit::load(model_to_serve)), device_idx));
+   //    }
+
+   //    worker_threads.emplace_back(&WorkerThead::do_work, WorkerThead(std::move(classifier), tokenizer, sequence_length, batch_queue, terminate));
+   // }
+
+   const std::string python_path = argv[5];
    std::shared_ptr<torch::deploy::Environment> env;
+   env = std::make_shared<torch::deploy::PathEnvironment>(python_path);
+   torch::deploy::InterpreterManager manager(4, env);
+   shared_ptr<torch::deploy::Package> package = make_shared<torch::deploy::Package>(manager.loadPackage(model_to_serve));
 
-   for(int i=0; i<4; ++i) {
-      unique_ptr<SequenceClassifier> classifier;
-      c10::optional<c10::DeviceIndex> device_idx(torch::cuda::is_available() ? c10::optional<c10::DeviceIndex>(i) : c10::nullopt);
-      if(argc > 5) {
-         if(manager == nullptr) {
-            const std::string python_path = argv[5];
-            env = std::make_shared<torch::deploy::PathEnvironment>(python_path);
-            manager = std::make_shared<torch::deploy::InterpreterManager>(4, env);
-            package = std::make_shared<torch::deploy::Package>(manager->loadPackage(model_to_serve));
-         }
-         classifier = unique_ptr<SequenceClassifier>(new TorchPackageSequenceClassifier(std::move(package->loadPickle("model", "model.pkl")), device_idx));
-      }else
-      {
-         classifier = unique_ptr<SequenceClassifier>(new TorchScriptSequenceClassifier(std::move(torch::jit::load(model_to_serve)), device_idx));
-      }
-
-      worker_threads.emplace_back(&WorkerThead::do_work, WorkerThead(std::move(classifier), tokenizer, sequence_length, batch_queue, terminate));
-   }
+   shared_ptr<WorkerThead> worker_thread = make_shared<WorkerThead>(manager, std::move(package->loadPickle("model", "model.pkl")), tokenizer, sequence_length, batch_queue, terminate);
 
    thread timer_thread = thread([&batcher, &terminate, &max_batch_delay](){
        while(!terminate) {
@@ -523,8 +605,10 @@ int main(const int argc, const char* const argv[]) {
 
   batch_queue.cv_.notify_all();
 
-  for(auto &t : worker_threads)
-      t.join();
+//   for(auto &t : worker_threads)
+//       t.join();
+
+   worker_thread.reset();
 
    timer_thread.join();
 
