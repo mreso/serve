@@ -16,6 +16,9 @@
 #include <torch/csrc/deploy/path_environment.h>
 #include <c10/util/Optional.h>
 #include <c10/core/Device.h>
+#include "c10/cuda/CUDAGuard.h"
+
+#include <cuda_runtime.h>
 
 using namespace web::http::experimental::listener;
 using namespace web::http;
@@ -89,18 +92,22 @@ class SequenceClassifier {
 
 class TorchPackageSequenceClassifier: public SequenceClassifier {
    public:
-   TorchPackageSequenceClassifier(torch::deploy::ReplicatedObj model_handler, c10::optional<c10::DeviceIndex> device_idx)
-   : model_handler_(std::move(model_handler)), SequenceClassifier(device_idx) {
+   TorchPackageSequenceClassifier(
+      shared_ptr<torch::deploy::ReplicatedObj> model_handler,
+      shared_ptr<torch::deploy::InterpreterManager> manager,
+      c10::optional<c10::DeviceIndex> device_idx)
+   :model_handler_(model_handler),
+   manager_(manager),
+   SequenceClassifier(device_idx) {
       if(device_idx_.has_value()) {
          auto device = "cuda:" + to_string(*device_idx_);
-         cout << "Moving to: " << device << endl;
-         model_handler_.acquireSession().self.attr("to")({device});
-         cout << "Resulting device: " << model_handler_.acquireSession().self.attr("device").toIValue() << endl;
-         cout << "Moving to (again): " << device << endl;
-         model_handler_.acquireSession().self.attr("to")({device});
-         cout << "Resulting device: " << model_handler_.acquireSession().self.attr("device").toIValue() << endl;
+         auto I = model_handler_->acquireSession(&manager_->allInstances().at(*device_idx_));
+         I.self.attr("to")({device});
       }
-      model_handler_.acquireSession().self.attr("eval")(vector<c10::IValue>());
+      if(device_idx_.has_value())
+         model_handler_->acquireSession(&manager_->allInstances().at(*device_idx_)).self.attr("eval")(vector<c10::IValue>());
+      else
+         model_handler_->acquireSession().self.attr("eval")(vector<c10::IValue>());
    }
 
    ~TorchPackageSequenceClassifier() {
@@ -109,23 +116,27 @@ class TorchPackageSequenceClassifier: public SequenceClassifier {
    protected:
 
    c10::IValue apply_model(std::unordered_map<std::string, c10::IValue> kwargs){
-      if(device_idx_.has_value()) {
-         move_to_cuda(kwargs, *device_idx_);
-      }
-      auto ret = model_handler_.callKwargs({}, kwargs).toIValue().toTuple()->elements()[0];
-      return ret;
+      shared_ptr<torch::deploy::InterpreterSession> I;
+      if(device_idx_.has_value())
+         I = make_shared<torch::deploy::InterpreterSession>(model_handler_->acquireSession(&manager_->allInstances().at(*device_idx_)));
+      else
+         I = make_shared<torch::deploy::InterpreterSession>(model_handler_->acquireSession());
+
+      return I->self.callKwargs({}, kwargs).toIValue().toTuple()->elements()[0];
    }
 
-   torch::deploy::ReplicatedObj model_handler_;
+   shared_ptr<torch::deploy::ReplicatedObj> model_handler_;
+   shared_ptr<torch::deploy::InterpreterManager> manager_;
+
 };
 
 class TorchScriptSequenceClassifier: public SequenceClassifier {
    public:
    TorchScriptSequenceClassifier(torch::jit::script::Module model, c10::optional<c10::DeviceIndex> device_idx)
    : model_(std::move(model)), SequenceClassifier(device_idx) {
-      model_.eval();
       if(device_idx_.has_value() && torch::cuda::is_available())
          model_.to(at::Device(torch::kCUDA, *device_idx_));
+      model_.eval();
    }
 
    ~TorchScriptSequenceClassifier() {
@@ -133,8 +144,6 @@ class TorchScriptSequenceClassifier: public SequenceClassifier {
    }
 
    c10::IValue apply_model(std::unordered_map<std::string, c10::IValue> kwargs){
-      if(device_idx_.has_value())
-         move_to_cuda(kwargs, *device_idx_);
       auto ret = model_.forward({}, kwargs).toIValue().toTuple()->elements()[0];
       return ret;
    }
@@ -202,7 +211,6 @@ public:
    }
 
    void enqueue(Request request) {
-      // cout << "Queuing request...\n";
       bool should_push = false;
       {
          lock_guard<mutex> lock(m_);
@@ -262,6 +270,10 @@ struct WorkerThead {
 
    void do_work() {
 
+      auto device_idx = classifier_->get_device_idx();
+      
+
+
       while(!terminate_) {
          unique_lock<mutex> lock(batch_queue_.m_);
          batch_queue_.cv_.wait(lock, [&]{return this->terminate_ || this->batch_queue_.batches_.size();});
@@ -278,7 +290,7 @@ struct WorkerThead {
             r.log_queue_time();
 
          auto begin = chrono::steady_clock::now();
-         process_batch(requests);
+         process_batch(move(requests));
          auto duration = chrono::steady_clock::now() - begin;
          log_metric("PredictionTime", chrono::duration_cast<chrono::milliseconds>(duration).count());
          log_metric("WorkerThreadTime", chrono::duration_cast<chrono::milliseconds>((chrono::steady_clock::now() - begin) - duration).count());
@@ -295,8 +307,6 @@ struct WorkerThead {
       if (sample_num == 0)
          return;
 
-      // cout << "Processing batch of size " << to_string(sample_num) << "\n";
-
       vector<torch::Tensor> input_ids, token_type_ids, attention_mask;
 
       for(int i=0; i<sample_num; ++i) {
@@ -308,36 +318,32 @@ struct WorkerThead {
          input_ids.push_back(kwargs["input_ids"].toTensor());
          token_type_ids.push_back(kwargs["token_type_ids"].toTensor());
          attention_mask.push_back(kwargs["attention_mask"].toTensor());
-
-         if (torch::cuda::is_available()) {
-            cout << "Moving batch to gpu" << endl;
-            at::Device device(torch::kCUDA, *(classifier_->get_device_idx()));
-            input_ids.back() = input_ids.back().to(device);
-            token_type_ids.back() = token_type_ids.back().to(device);
-            attention_mask.back() = attention_mask.back().to(device);
-         }
       }
 
       unordered_map<string, c10::IValue> batch;
       
-      batch["input_ids"] = torch::stack(input_ids);
-      batch["token_type_ids"] = torch::stack(token_type_ids);
-      batch["attention_mask"] = torch::stack(attention_mask);
-      // chrono::steady_clock::time_point end = chrono::steady_clock::now();
+      batch["input_ids"] = torch::stack(input_ids).pin_memory();
+      batch["token_type_ids"] = torch::stack(token_type_ids).pin_memory();
+      batch["attention_mask"] = torch::stack(attention_mask).pin_memory();
 
-      // log_metric("TokenizationTime", chrono::duration_cast<chrono::milliseconds>(end - begin).count());
+      auto device_idx = classifier_->get_device_idx();
 
+      if(device_idx.has_value())
+         move_to_cuda(batch, *device_idx);
+      
       auto ret = classifier_->apply_model(batch);
-
       auto res = torch::softmax(ret.toTensor(),1);
 
+
+      vector<string> answers;
+      for(int i=0; i<sample_num; ++i) {
+         float paraphrased_percent = 100.0 * res[i][1].item<float>();
+         answers.push_back(to_string((int)round(paraphrased_percent)) + "% paraphrase");
+      }
       log_metric("HandlerTime", chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - begin).count());
       
       for(int i=0; i<sample_num; ++i) {
-         float paraphrased_percent = 100.0 * res[i][1].item<float>();
-         string answer = to_string((int)round(paraphrased_percent)) + "% paraphrase";
-
-         requests[i].reply(status_codes::OK, answer);
+         requests[i].reply(status_codes::OK, answers[i]);
       }
    }
 
@@ -391,12 +397,10 @@ void handle_request(
       Request r(std::move(request), sequence_0, sequence_1);
       batcher.enqueue(std::move(r));
    }
-
-   // request.reply(code, answer);
 }
 
 int main(const int argc, const char* const argv[]) {
-   crossplat::threadpool::initialize_with_threads(150);
+   crossplat::threadpool::initialize_with_threads(400);
 
    if (!(argc == 6 or argc == 5)) {
       std::cout << "Usage: cpp_backend_poc_eager <uri> <batch_size> <batch_delay> <model_to_serve> [<python_path>] " << std::endl
@@ -418,7 +422,7 @@ int main(const int argc, const char* const argv[]) {
    const size_t max_batch_size = atol(argv[2]);
    const long max_batch_delay(atol(argv[3]));
    const std::string model_to_serve = argv[4];
-   const size_t sequence_length = 128;
+   const size_t sequence_length = 64;
 
    BertTokenizer tokenizer("vocab.txt");
 
@@ -431,21 +435,23 @@ int main(const int argc, const char* const argv[]) {
 
    vector<thread> worker_threads;
 
-   std::shared_ptr<torch::deploy::InterpreterManager> manager;
-   std::shared_ptr<torch::deploy::Package> package;
-   std::shared_ptr<torch::deploy::Environment> env;
+   shared_ptr<torch::deploy::InterpreterManager> manager;
+   shared_ptr<torch::deploy::Package> package;
+   shared_ptr<torch::deploy::Environment> env;
+   shared_ptr<torch::deploy::ReplicatedObj> model;
 
    for(int i=0; i<4; ++i) {
       unique_ptr<SequenceClassifier> classifier;
       c10::optional<c10::DeviceIndex> device_idx(torch::cuda::is_available() ? c10::optional<c10::DeviceIndex>(i) : c10::nullopt);
       if(argc > 5) {
          if(manager == nullptr) {
-            const std::string python_path = argv[5];
-            env = std::make_shared<torch::deploy::PathEnvironment>(python_path);
-            manager = std::make_shared<torch::deploy::InterpreterManager>(4, env);
-            package = std::make_shared<torch::deploy::Package>(manager->loadPackage(model_to_serve));
+            const string python_path = argv[5];
+            env = make_shared<torch::deploy::PathEnvironment>(python_path);
+            manager = make_shared<torch::deploy::InterpreterManager>(4, env);
+            package = make_shared<torch::deploy::Package>(manager->loadPackage(model_to_serve));
+            model = make_shared<torch::deploy::ReplicatedObj>(package->loadPickle("model", "model.pkl"));
          }
-         classifier = unique_ptr<SequenceClassifier>(new TorchPackageSequenceClassifier(std::move(package->loadPickle("model", "model.pkl")), device_idx));
+         classifier = unique_ptr<SequenceClassifier>(new TorchPackageSequenceClassifier(model, manager, device_idx));
       }else
       {
          classifier = unique_ptr<SequenceClassifier>(new TorchScriptSequenceClassifier(std::move(torch::jit::load(model_to_serve)), device_idx));
