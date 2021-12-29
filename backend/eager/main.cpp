@@ -321,15 +321,18 @@ struct WorkerThead {
       }
 
       unordered_map<string, c10::IValue> batch;
-      
-      batch["input_ids"] = torch::stack(input_ids).pin_memory();
-      batch["token_type_ids"] = torch::stack(token_type_ids).pin_memory();
-      batch["attention_mask"] = torch::stack(attention_mask).pin_memory();
-
       auto device_idx = classifier_->get_device_idx();
 
-      if(device_idx.has_value())
+      if(device_idx.has_value()) {
+         batch["input_ids"] = torch::stack(input_ids).pin_memory();
+         batch["token_type_ids"] = torch::stack(token_type_ids).pin_memory();
+         batch["attention_mask"] = torch::stack(attention_mask).pin_memory();
          move_to_cuda(batch, *device_idx);
+      }else {
+         batch["input_ids"] = torch::stack(input_ids);
+         batch["token_type_ids"] = torch::stack(token_type_ids);
+         batch["attention_mask"] = torch::stack(attention_mask);
+      }
       
       auto ret = classifier_->apply_model(batch);
       auto res = torch::softmax(ret.toTensor(),1);
