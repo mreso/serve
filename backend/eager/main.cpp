@@ -172,22 +172,22 @@ struct Request {
       reply_message_ = reply_message;
    }
    void mark_batching(){
-      // batch_time_ = chrono::steady_clock::now();
+      batch_time_ = chrono::steady_clock::now();
    }
    void mark_reply(){
-      // reply_time_ = chrono::steady_clock::now();
+      reply_time_ = chrono::steady_clock::now();
    }
    void log_times(){
-      // long queue_duration = chrono::duration_cast<chrono::milliseconds>(batch_time_ - creation_time_).count();
-      // long batch_queue_duration = chrono::duration_cast<chrono::milliseconds>(processing_time_ - batch_time_).count();
-      // long processing_duration = chrono::duration_cast<chrono::milliseconds>(reply_time_ - processing_time_).count();
-      // long reply_duration = chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - reply_time_).count();
+      long queue_duration = chrono::duration_cast<chrono::milliseconds>(batch_time_ - creation_time_).count();
+      long batch_queue_duration = chrono::duration_cast<chrono::milliseconds>(processing_time_ - batch_time_).count();
+      long processing_duration = chrono::duration_cast<chrono::milliseconds>(reply_time_ - processing_time_).count();
+      long reply_duration = chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - reply_time_).count();
 
-      // LOG(INFO) << "AllTimes," << queue_duration << "," << batch_queue_duration << "," << processing_duration << "," << reply_duration << endl;
+      LOG(INFO) << "AllTimes," << queue_duration << "," << batch_queue_duration << "," << processing_duration << "," << reply_duration << "," << queue_duration + batch_queue_duration << endl;
    }
 
    void log_queue_time() {
-      // processing_time_ = chrono::steady_clock::now();
+      processing_time_ = chrono::steady_clock::now();
       log_metric("QueueTime", chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - creation_time_).count());
    }
 
@@ -341,8 +341,10 @@ public:
 
          lock.unlock();
 
-         for(auto &r : requests)
+         for(auto &r : requests){
             r.reply(status_codes::OK);
+            r.log_times();
+         }
       }
    }
 
@@ -449,6 +451,9 @@ struct WorkerThead {
          requests[i].set_reply_message(to_string((int)round(paraphrased_percent)) + "% paraphrase");
       }
       log_metric("HandlerTime", chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - begin).count());
+
+      for(auto &r : requests)
+            r.mark_reply();
       
       reply_queue_.enqueue_batch(move(requests));
    }
@@ -507,7 +512,7 @@ void handle_request(
 }
 
 int main(const int argc, const char* const argv[]) {
-   crossplat::threadpool::initialize_with_threads(150);
+   crossplat::threadpool::initialize_with_threads(100);
 
    if (!(argc == 6 or argc == 5)) {
       std::cout << "Usage: cpp_backend_poc_eager <uri> <batch_size> <batch_delay> <model_to_serve> [<python_path>] " << std::endl
