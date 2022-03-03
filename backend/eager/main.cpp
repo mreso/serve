@@ -34,8 +34,8 @@ using namespace web;
 #include <string>
 #include <iostream>
 #include <set>
-#include <mutex>
-#include <condition_variable>
+
+#include "blockingconcurrentqueue.h"
 
 
 using namespace std;
@@ -105,10 +105,11 @@ class TorchPackageSequenceClassifier: public SequenceClassifier {
          auto I = model_handler_->acquireSession(&manager_->allInstances().at(*device_idx_));
          I.self.attr("to")({device});
       }
-      if(device_idx_.has_value())
+      if(device_idx_.has_value()) {
          model_handler_->acquireSession(&manager_->allInstances().at(*device_idx_)).self.attr("eval")(vector<c10::IValue>());
-      else
+      }else {
          model_handler_->acquireSession().self.attr("eval")(vector<c10::IValue>());
+      }
    }
 
    ~TorchPackageSequenceClassifier() {
@@ -136,7 +137,11 @@ class TorchScriptSequenceClassifier: public SequenceClassifier {
    TorchScriptSequenceClassifier(torch::jit::script::Module model, c10::optional<c10::DeviceIndex> device_idx)
    : model_(std::move(model)), SequenceClassifier(device_idx) {
       if(device_idx_.has_value() && torch::cuda::is_available())
-         model_.to(at::Device(torch::kCUDA, *device_idx_));
+      {
+         model_.to(at::Device(torch::kCUDA, *device_idx_)); 
+         std::cout << "Optimizing for inference...\n";
+         model_ = torch::jit::optimize_for_inference(model_);
+      }
       model_.eval();
    }
 
@@ -161,6 +166,11 @@ struct Request {
       // PredictionTime is not 100 accurate as data fetching from request is not included
       creation_time_ = chrono::steady_clock::now();
    }
+
+   Request() {
+
+   }
+
 
    void reply(int code, string message) {
       request_.reply(code, message);
@@ -201,108 +211,45 @@ struct Request {
    string reply_message_;
 };
 
-struct BatchQueue {
-   BatchQueue() {
-   }
-
-   void enqueue(vector<Request> batch) {
-      {
-         lock_guard<mutex> lock(m_);
-         batches_.push(std::move(batch));
-      }
-      cv_.notify_one();
-   }
-
-   vector<Request> dequeue() {
-      vector<Request> batch;
-      bool wake_another = false;
-      {
-         lock_guard<mutex> lock(m_);
-         if(batches_.size() == 0)
-            return vector<Request>();
-            
-         batch = std::move(batches_.front());
-         batches_.pop();
-         wake_another = batches_.size();
-      }
-      if(wake_another)
-         cv_.notify_one();
-
-      return batch;
-   }
-
-   int get_size() {
-      lock_guard<mutex> lock(m_);
-      return batches_.size();
-   }
-   
-   condition_variable cv_;
-   mutex m_;
-   queue<vector<Request>> batches_;
-};
-
-
 class Batcher {
 public:
-   Batcher(size_t max_batch_size, BatchQueue &batch_queue) 
-   :max_batch_size_(max_batch_size), batch_queue_(batch_queue){
-      last_batch_time = chrono::steady_clock::now();
+   Batcher(size_t max_batch_size, size_t max_batch_delay) 
+   :max_batch_size_(max_batch_size), max_batch_delay_(max_batch_delay){
    }
 
    void enqueue(Request request) {
-      bool should_push = false;
-      {
-         lock_guard<mutex> lock(m_);
-         queue_.push(request);
-         if(queue_.size() >= max_batch_size_) {
-            should_push = true;
-         }
-      }
-      if(should_push)
-         push_batch("max_batch");
+      cc_request_queue_.enqueue(request);
    }
 
-   void push_batch(string reason="None") {
+   vector<Request> poll_batch() {
+      chrono::time_point<chrono::steady_clock>last_batch_time = chrono::steady_clock::now();
       vector<Request> requests;
 
-      {
-         lock_guard<mutex> lock(m_);
-         size_t sample_num;
+      for(size_t i=0; i<max_batch_size_; ++i)
+      {  
+         Request r;
 
-         if (queue_.size() == 0)
-            return ;
+         chrono::milliseconds time_since_last_batch = chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now()-last_batch_time);
 
-         sample_num = min(max_batch_size_, queue_.size());
+         chrono::milliseconds max_deplay = max(chrono::milliseconds(0), chrono::milliseconds(max_batch_delay_) - time_since_last_batch);
+
+         if(cc_request_queue_.wait_dequeue_timed(r, max_deplay)) {
          
-         for(int i=0; i<sample_num; ++i) {
-            requests.push_back(std::move(queue_.front()));
+            requests.push_back(std::move(r));
             requests.back().mark_batching();
-            queue_.pop();
+         }else {
+            break;
          }
-         
-         LOG(INFO) << "BatchPushedAfter (" << reason <<"): " << chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now()-last_batch_time).count() << " (Queue length: "<< batch_queue_.get_size() << ")" << endl;
-         
-
-         last_batch_time = chrono::steady_clock::now();
       }
 
-      batch_queue_.enqueue(std::move(requests));
-   }
-
-   chrono::time_point<chrono::steady_clock> get_last_batch_time() {
-      lock_guard<mutex> lock(m_);
-      return last_batch_time;
+      return requests;
    }
 
 protected:
    queue<Request> queue_;
+   moodycamel::BlockingConcurrentQueue<Request> cc_request_queue_;
    size_t max_batch_size_;
-
-   chrono::time_point<chrono::steady_clock> last_batch_time;
-
-   mutex m_;
-   
-   BatchQueue &batch_queue_;
+   size_t max_batch_delay_;
 };
 
 class RequestReplyQueue {
@@ -315,41 +262,31 @@ public:
    }
    ~RequestReplyQueue() {
       terminate_ = true;
-      cv_.notify_all();
 
       for(auto &t : threads_)
          t.join();
    }
 
    void enqueue_batch(vector<Request> requests) {
-      {
-         lock_guard<mutex> lock(m_);
-         queue_.push(move(requests));
-      }
-      cv_.notify_one();
+      cc_reply_queue_.enqueue(requests);
    }
 
    void do_work() {
 
       while(!terminate_) {
-         unique_lock<mutex> lock(m_);
-         if(queue_.size() == 0)
-            cv_.wait(lock, [&]{return this->terminate_ || this->queue_.size();});
-            
-         vector<Request> requests = move(queue_.front());
-         queue_.pop();
+         vector<Request> requests;
 
-         lock.unlock();
-
-         for(auto &r : requests){
-            r.reply(status_codes::OK);
-            r.log_times();
+         if(cc_reply_queue_.wait_dequeue_timed(requests, 200)) {
+            for(auto &r : requests){
+               r.reply(status_codes::OK);
+               r.log_times();
+            }
          }
       }
    }
 
 protected:
-   queue<vector<Request>> queue_;
+   moodycamel::BlockingConcurrentQueue<vector<Request>> cc_reply_queue_;
 
    atomic_bool terminate_;
    
@@ -361,9 +298,9 @@ protected:
 
 struct WorkerThead {
 
-   WorkerThead(unique_ptr<SequenceClassifier> classifier, BertTokenizer& tokenizer, size_t sequence_length, BatchQueue& batch_queue, atomic_bool &terminate,
+   WorkerThead(unique_ptr<SequenceClassifier> classifier, BertTokenizer& tokenizer, size_t sequence_length, Batcher& batcher, atomic_bool &terminate,
    RequestReplyQueue& reply_queue)
-   :classifier_(std::move(classifier)), tokenizer_(tokenizer), sequence_length_(sequence_length), batch_queue_(batch_queue), terminate_(terminate),
+   :classifier_(std::move(classifier)), tokenizer_(tokenizer), sequence_length_(sequence_length), batcher_(batcher), terminate_(terminate),
    reply_queue_(reply_queue) {
 
    }
@@ -371,26 +308,13 @@ struct WorkerThead {
    void do_work() {
 
       auto device_idx = classifier_->get_device_idx();
+
       
-
-
       while(!terminate_) {
-         vector<Request> requests;
 
-         unique_lock<mutex> lock(batch_queue_.m_);
-
-         if(batch_queue_.batches_.size() == 0)
-            batch_queue_.cv_.wait(lock, [&]{return this->terminate_ || this->batch_queue_.batches_.size();});
-            
-         if(terminate_)
-               return;
-               
-         requests = std::move(batch_queue_.batches_.front());
-         batch_queue_.batches_.pop();
-         
-         lock.unlock();
-
-         batch_queue_.cv_.notify_one();
+         vector<Request> requests = batcher_.poll_batch();
+         if(requests.size() == 0)
+            continue;
          
          auto w_begin = chrono::steady_clock::now();
 
@@ -462,7 +386,8 @@ struct WorkerThead {
    BertTokenizer& tokenizer_;
 
    size_t sequence_length_;
-   BatchQueue &batch_queue_;
+   
+   Batcher &batcher_;
    atomic_bool &terminate_;
    RequestReplyQueue& reply_queue_;
 };
@@ -512,7 +437,7 @@ void handle_request(
 }
 
 int main(const int argc, const char* const argv[]) {
-   crossplat::threadpool::initialize_with_threads(100);
+   crossplat::threadpool::initialize_with_threads(160);
 
    if (!(argc == 6 or argc == 5)) {
       std::cout << "Usage: cpp_backend_poc_eager <uri> <batch_size> <batch_delay> <model_to_serve> [<python_path>] " << std::endl
@@ -541,9 +466,7 @@ int main(const int argc, const char* const argv[]) {
    atomic_bool terminate;
    terminate = false;
 
-   BatchQueue batch_queue;
-
-   Batcher batcher(max_batch_size, batch_queue);
+   Batcher batcher(max_batch_size, max_batch_delay);
 
    RequestReplyQueue reply_queue;
 
@@ -571,27 +494,8 @@ int main(const int argc, const char* const argv[]) {
          classifier = unique_ptr<SequenceClassifier>(new TorchScriptSequenceClassifier(std::move(torch::jit::load(model_to_serve)), device_idx));
       }
 
-      worker_threads.emplace_back(&WorkerThead::do_work, WorkerThead(std::move(classifier), tokenizer, sequence_length, batch_queue, terminate, reply_queue));
+      worker_threads.emplace_back(&WorkerThead::do_work, WorkerThead(std::move(classifier), tokenizer, sequence_length, batcher, terminate, reply_queue));
    }
-
-   thread timer_thread = thread([&batcher, &terminate, &max_batch_delay](){
-       while(!terminate) {
-         bool should_push = false;
-         chrono::milliseconds sleep_time(max_batch_delay);
-         chrono::time_point<chrono::steady_clock> last_batch_time = batcher.get_last_batch_time();
-         chrono::time_point<chrono::steady_clock> now =chrono::steady_clock::now();
-         chrono::milliseconds diff = chrono::duration_cast<chrono::milliseconds>(now - last_batch_time);
-
-         if(diff.count() >= max_batch_delay) {
-            should_push = true;
-         }else {
-            sleep_time = sleep_time - diff;
-         }
-         if(should_push)
-            batcher.push_batch("timer");
-         this_thread::sleep_for(sleep_time);
-         }
-   });
 
    at::set_num_interop_threads(1);
    at::set_num_threads(1);
@@ -641,12 +545,8 @@ int main(const int argc, const char* const argv[]) {
 
   terminate = true;
 
-  batch_queue.cv_.notify_all();
-
   for(auto &t : worker_threads)
       t.join();
-
-   timer_thread.join();
 
   std::cout << "Shutting down ..." << std::endl;
   listener.close();
