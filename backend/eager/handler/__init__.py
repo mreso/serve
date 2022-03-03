@@ -32,3 +32,63 @@ class Handler(object):
         assert 'sequence_0' in request and 'sequence_1' in request, "Incorrect JSON content"
 
         return self.execute(request['sequence_0'], request['sequence_1'])
+
+
+class InferenceModel(object):
+    def __init__(self):
+        self._model = AutoModelForSequenceClassification.from_pretrained("bert-base-cased-finetuned-mrpc", torchscript=True)
+        self._model.eval()
+
+    def __call__(self, *args, **kwargs):
+        return self.forward(*args, **kwargs)
+
+    def forward(self, *args, **kwargs):
+        print("forward")
+        with torch.inference_mode():
+           return self._model(*args, **kwargs)
+
+    def to(self, device):
+        self._model = self._model.to(device)
+        return self
+    
+    def eval(self):
+        self._model.eval()
+
+    def __getattr__(self, key):
+        if key in "device":
+            return self._model.device
+        
+        if key in self.__dict__:
+            return self.__dict__[key]
+        else:
+            raise AttributeError
+
+
+class NoGradModel(object):
+    def __init__(self):
+        self._model = AutoModelForSequenceClassification.from_pretrained("bert-base-cased-finetuned-mrpc", torchscript=True)
+        self._model.eval()
+
+    def __call__(self, *args, **kwargs):
+        return self.forward(*args, **kwargs)
+
+    def forward(self, *args, **kwargs):
+        print("forward")
+        with torch.no_grad():
+           return self._model(*args, **kwargs)
+
+    def to(self, device):
+        self._model = self._model.to(device)
+        return self
+    
+    def eval(self):
+        self._model.eval()
+
+    def __getattr__(self, key):
+        if key in "device":
+            return self._model.device
+        
+        if key in self.__dict__:
+            return self.__dict__[key]
+        else:
+            raise AttributeError
