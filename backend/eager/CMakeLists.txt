@@ -36,6 +36,7 @@ target_link_libraries(cpp_backend_poc_eager PRIVATE OpenSSL::Crypto ${Boost_LIBR
 #target_include_directories(cpp_backend_poc_eager PRIVATE ${TORCHVISION_INCLUDE_DIRS})
 
 find_package(Torch REQUIRED)
+
 target_include_directories(cpp_backend_poc_eager PRIVATE ${TORCH_INCLUDE_DIRS})
 target_link_libraries(cpp_backend_poc_eager PRIVATE ${TORCH_LIBRARIES})
 
@@ -66,19 +67,7 @@ target_link_libraries(bert_tokenizer ${utf8proc_LIBRARY_PATH})
 target_include_directories(test_tokenizer PRIVATE ${TORCH_INCLUDE_DIRS})
 target_link_libraries(test_tokenizer PRIVATE ${TORCH_LIBRARIES})
 
-
-# torch::deploy currently does not add itself to TORCH_LIBRARIES it seems,
-# presumably because it is in beta.  We hunt down for, and separately link
-# against, the library manually here.  This step should not be necessary it
-# seems to me after torch:deploy is no longer in beta.
-
-find_library(
-    TORCH_DEPLOY
-    torch_deploy
-    PATHS ${TORCH_INSTALL_PREFIX}/../build/lib
-    REQUIRED)
-
-target_link_libraries(cpp_backend_poc_eager PRIVATE bert_tokenizer ${TORCH_DEPLOY} ${GLOG_LIBRARIES})
+target_link_libraries(cpp_backend_poc_eager PRIVATE bert_tokenizer ${GLOG_LIBRARIES})
 
 target_link_libraries(test_tokenizer PRIVATE bert_tokenizer ${TORCH_DEPLOY})
 
@@ -89,3 +78,15 @@ target_compile_features(benchmark PRIVATE cxx_std_14)
 find_package(Torch REQUIRED)
 target_include_directories(benchmark PRIVATE ${TORCH_INCLUDE_DIRS})
 target_link_libraries(benchmark PRIVATE ${TORCH_LIBRARIES} ${TORCH_DEPLOY})
+
+add_executable(batched_benchmark batched_threading_benchmark.cpp)
+target_compile_features(batched_benchmark PRIVATE cxx_std_14)
+
+find_package(Torch REQUIRED)
+target_include_directories(batched_benchmark PRIVATE ${TORCH_INCLUDE_DIRS})
+target_link_libraries(batched_benchmark PRIVATE ${TORCH_LIBRARIES} ${TORCH_DEPLOY})
+
+add_executable(optimize_for_inference_benchmark optimize_for_inference_benchmark.cpp)
+target_compile_features(optimize_for_inference_benchmark PRIVATE cxx_std_14)
+target_include_directories(optimize_for_inference_benchmark PRIVATE ${TORCH_INCLUDE_DIRS})
+target_link_libraries(optimize_for_inference_benchmark PRIVATE ${TORCH_LIBRARIES})
