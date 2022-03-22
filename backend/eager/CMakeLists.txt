@@ -68,25 +68,23 @@ target_include_directories(test_tokenizer PRIVATE ${TORCH_INCLUDE_DIRS})
 target_link_libraries(test_tokenizer PRIVATE ${TORCH_LIBRARIES})
 
 target_link_libraries(cpp_backend_poc_eager PRIVATE bert_tokenizer ${GLOG_LIBRARIES})
-
-target_link_libraries(test_tokenizer PRIVATE bert_tokenizer ${TORCH_DEPLOY})
-
+target_link_libraries(test_tokenizer PRIVATE bert_tokenizer)
 
 add_executable(benchmark threading_benchmark.cpp)
 target_compile_features(benchmark PRIVATE cxx_std_14)
 
-find_package(Torch REQUIRED)
 target_include_directories(benchmark PRIVATE ${TORCH_INCLUDE_DIRS})
-target_link_libraries(benchmark PRIVATE ${TORCH_LIBRARIES} ${TORCH_DEPLOY})
-
-add_executable(batched_benchmark batched_threading_benchmark.cpp)
-target_compile_features(batched_benchmark PRIVATE cxx_std_14)
-
-find_package(Torch REQUIRED)
-target_include_directories(batched_benchmark PRIVATE ${TORCH_INCLUDE_DIRS})
-target_link_libraries(batched_benchmark PRIVATE ${TORCH_LIBRARIES} ${TORCH_DEPLOY})
+target_link_libraries(benchmark PRIVATE ${TORCH_LIBRARIES})
 
 add_executable(optimize_for_inference_benchmark optimize_for_inference_benchmark.cpp)
 target_compile_features(optimize_for_inference_benchmark PRIVATE cxx_std_14)
 target_include_directories(optimize_for_inference_benchmark PRIVATE ${TORCH_INCLUDE_DIRS})
 target_link_libraries(optimize_for_inference_benchmark PRIVATE ${TORCH_LIBRARIES})
+
+add_executable(so_disect so_disect.cpp)
+target_link_libraries(so_disect ${CMAKE_DL_LIBS})
+
+add_executable(handler_deploy handler_deploy.cpp)
+target_compile_features(handler_deploy PRIVATE cxx_std_14)
+target_include_directories(handler_deploy PRIVATE ${TORCH_INCLUDE_DIRS})
+target_link_libraries(handler_deploy PRIVATE ${TORCH_LIBRARIES})
