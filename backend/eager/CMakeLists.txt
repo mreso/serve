@@ -51,18 +51,18 @@ find_library(GLOG_LIBRARIES libglog.so.0)
 # Tokenizer
 #
 add_compile_definitions(SPDLOG_FMT_EXTERNAL)
-add_library(bert_tokenizer bert_tokenizer.cpp ${RADISH_INSTALL_PREFIX}/radish/bert/bert_tokenizer.cc ${RADISH_INSTALL_PREFIX}/radish/utils/text_tokenizer.cc)
+add_library(bert_tokenizer SHARED bert_tokenizer.cpp ${RADISH_INSTALL_PREFIX}/radish/bert/bert_tokenizer.cc ${RADISH_INSTALL_PREFIX}/radish/utils/text_tokenizer.cc)
 include_directories(BEFORE ${RADISH_INSTALL_PREFIX} ${UTF8PROC_INSTALL_PREFIX} ${TORCH_INCLUDE_DIRS})
 
 find_package(fmt REQUIRED)
 #find_library(glog_LIBRARY_PATH libglog)
 set(glog_LIBRARY_PATH /usr/lib/x86_64-linux-gnu/libglog.so)
 
-target_link_libraries(bert_tokenizer fmt::fmt ${TORCH_LIBRARIES} ${glog_LIBRARY_PATH})
+target_link_libraries(bert_tokenizer PRIVATE fmt::fmt ${TORCH_LIBRARIES} ${glog_LIBRARY_PATH})
 
 #find_library(utf8proc_LIBRARY_PATH libutf8proc)
 set(utf8proc_LIBRARY_PATH /usr/lib/x86_64-linux-gnu/libutf8proc.so)
-target_link_libraries(bert_tokenizer ${utf8proc_LIBRARY_PATH})
+target_link_libraries(bert_tokenizer PRIVATE  ${utf8proc_LIBRARY_PATH})
 
 target_include_directories(test_tokenizer PRIVATE ${TORCH_INCLUDE_DIRS})
 target_link_libraries(test_tokenizer PRIVATE ${TORCH_LIBRARIES})
@@ -81,10 +81,13 @@ target_compile_features(optimize_for_inference_benchmark PRIVATE cxx_std_14)
 target_include_directories(optimize_for_inference_benchmark PRIVATE ${TORCH_INCLUDE_DIRS})
 target_link_libraries(optimize_for_inference_benchmark PRIVATE ${TORCH_LIBRARIES})
 
-add_executable(so_disect so_disect.cpp)
-target_link_libraries(so_disect ${CMAKE_DL_LIBS})
-
 add_executable(handler_deploy handler_deploy.cpp)
 target_compile_features(handler_deploy PRIVATE cxx_std_14)
 target_include_directories(handler_deploy PRIVATE ${TORCH_INCLUDE_DIRS})
 target_link_libraries(handler_deploy PRIVATE ${TORCH_LIBRARIES})
+
+add_library(handler SHARED handler.cpp)
+target_compile_features(handler PRIVATE cxx_std_14)
+
+add_executable(so_disect so_disect.cpp)
+target_link_libraries(so_disect ${CMAKE_DL_LIBS})
