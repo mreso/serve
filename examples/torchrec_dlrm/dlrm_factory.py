@@ -3,19 +3,14 @@ This fectory creates a DLRM model with the Torchrec library compatible with the 
 For this example we use an untrained model. More information on how to train this model can be found at
 https://github.com/facebookresearch/dlrm/tree/main/torchrec_dlrm/
 """
-
 from dataclasses import dataclass
 from typing import List
 
+import fbgemm_gpu  # nopycln: import
 import torch
-import torchrec.distributed as trec_dist
 from torchrec.datasets.criteo import DEFAULT_CAT_NAMES, DEFAULT_INT_NAMES
 from torchrec.distributed.embedding_types import EmbeddingComputeKernel
-from torchrec.distributed.planner import (
-    EmbeddingShardingPlanner,
-    ParameterConstraints,
-    Topology,
-)
+from torchrec.distributed.planner import ParameterConstraints
 from torchrec.distributed.quant_embeddingbag import QuantEmbeddingBagCollectionSharder
 from torchrec.distributed.types import ShardingType
 from torchrec.inference.modules import quantize_embeddings
@@ -120,25 +115,25 @@ class DLRMFactory(type):
 
         module = quantize_embeddings(module, dtype=torch.qint8, inplace=True)
 
-        # The planner will decide how the model memory will be allocated.
-        # In case of multiple GPU (not part of this example) it decides how to split the model between the GPUs
-        plan = EmbeddingShardingPlanner(
-            topology=Topology(
-                world_size=world_size,
-                compute_device="cuda",
-                local_world_size=world_size,
-            ),
-            constraints=constraints,
-        ).plan(module, sharders)
+        # # The planner will decide how the model memory will be allocated.
+        # # In case of multiple GPU (not part of this example) it decides how to split the model between the GPUs
+        # plan = EmbeddingShardingPlanner(
+        #     topology=Topology(
+        #         world_size=world_size,
+        #         compute_device="cuda",
+        #         local_world_size=world_size,
+        #     ),
+        #     constraints=constraints,
+        # ).plan(module, sharders)
 
-        # This step brings it all together and finally allocates the memory for the model
-        module = trec_dist.DistributedModelParallel(
-            module=module,
-            device=device,
-            env=trec_dist.ShardingEnv.from_local(world_size, default_cuda_rank),
-            plan=plan,
-            sharders=sharders,
-            init_data_parallel=False,
-        )
+        # # This step brings it all together and finally allocates the memory for the model
+        # module = trec_dist.DistributedModelParallel(
+        #     module=module,
+        #     device=device,
+        #     env=trec_dist.ShardingEnv.from_local(world_size, default_cuda_rank),
+        #     plan=plan,
+        #     sharders=sharders,
+        #     init_data_parallel=False,
+        # )
 
         return module
