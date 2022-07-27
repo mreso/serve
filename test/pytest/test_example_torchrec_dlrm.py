@@ -22,12 +22,12 @@ SIMPLE_MODEL_FACTORY_PY = CURR_FILE_PATH.joinpath("test_data", "dlrm_model.py")
 
 # The test cases and expected results used for the unittests with batch size one and two.
 EXPECTED_RESULTS = [
-    [{"default": [pytest.approx(0.1051536425948143)]}],
+    [{"default": [pytest.approx(-0.04355470836162567)]}],
     [
         {
             "default": [
-                pytest.approx(0.1051536425948143),
-                pytest.approx(0.10522478073835373),
+                pytest.approx(-0.04355470836162567),
+                pytest.approx(-0.04489742964506149),
             ]
         }
     ],

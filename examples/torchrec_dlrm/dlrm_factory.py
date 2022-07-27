@@ -92,7 +92,7 @@ class DLRMFactory(type):
             )
         ]
         # Creates an EmbeddingBagCollection without allocating any memory
-        ebc = EmbeddingBagCollection(tables=eb_configs, device=torch.device("meta"))
+        ebc = EmbeddingBagCollection(tables=eb_configs, device=device)
 
         module = DLRM(
             embedding_bag_collection=ebc,
@@ -114,26 +114,5 @@ class DLRMFactory(type):
             )
 
         module = quantize_embeddings(module, dtype=torch.qint8, inplace=True)
-
-        # # The planner will decide how the model memory will be allocated.
-        # # In case of multiple GPU (not part of this example) it decides how to split the model between the GPUs
-        # plan = EmbeddingShardingPlanner(
-        #     topology=Topology(
-        #         world_size=world_size,
-        #         compute_device="cuda",
-        #         local_world_size=world_size,
-        #     ),
-        #     constraints=constraints,
-        # ).plan(module, sharders)
-
-        # # This step brings it all together and finally allocates the memory for the model
-        # module = trec_dist.DistributedModelParallel(
-        #     module=module,
-        #     device=device,
-        #     env=trec_dist.ShardingEnv.from_local(world_size, default_cuda_rank),
-        #     plan=plan,
-        #     sharders=sharders,
-        #     init_data_parallel=False,
-        # )
 
         return module

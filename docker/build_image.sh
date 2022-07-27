@@ -40,8 +40,8 @@ do
         -g|--gpu)
           MACHINE=gpu
           DOCKER_TAG="pytorch/torchserve:latest-gpu"
-          BASE_IMAGE="nvidia/cuda:10.2-cudnn8-runtime-ubuntu18.04"
-          CUDA_VERSION="cu102"
+          BASE_IMAGE="nvidia/cuda:11.3.1-cudnn8-runtime-ubuntu18.04"
+          CUDA_VERSION="cu113"
           shift
           ;;
         -bt|--buildtype)
@@ -56,7 +56,7 @@ do
           shift
           ;;
         -lf|--use-local-serve-folder)
-          USE_LOCAL_SERVE_FOLDER=true        
+          USE_LOCAL_SERVE_FOLDER=true
           shift
           ;;
         -ipex|--build-with-ipex)
